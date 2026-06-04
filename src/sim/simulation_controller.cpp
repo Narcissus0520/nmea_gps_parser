@@ -39,8 +39,8 @@ void SimulationController::generate_epoch(void)
     const QTime time = now.time();
     const QDate date = now.date();
     const double angle = tick_ * 0.13;
-    const double latitude = 31.230416 + qSin(angle) * 0.0018 + tick_ * 0.000015;
-    const double longitude = 121.473701 + qCos(angle * 0.8) * 0.0018 + tick_ * 0.000018;
+    const double latitude = 22.543096 + qSin(angle) * 0.0018 + tick_ * 0.000015;
+    const double longitude = 114.057865 + qCos(angle * 0.8) * 0.0018 + tick_ * 0.000018;
     const double altitude = 31.8 + qSin(angle * 0.7) * 2.5;
     const double speed_kmh = 36.0 + qSin(angle) * 8.0;
     const double speed_knots = speed_kmh / 1.852;

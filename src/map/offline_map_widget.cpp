@@ -142,6 +142,10 @@ void OfflineMapWidget::paintEvent(QPaintEvent *event)
                          .arg(zoom_)
                          .arg(track_.size())
                          .arg(QDir::toNativeSeparators(tile_root_)));
+    painter.setPen(QColor("#b8f7ef"));
+    painter.drawText(rect().adjusted(10, 0, -10, -8),
+                     Qt::AlignRight | Qt::AlignBottom,
+                     "Tiles (C) OpenStreetMap contributors");
 }
 
 void OfflineMapWidget::wheelEvent(QWheelEvent *event)
