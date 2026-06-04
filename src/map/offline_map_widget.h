@@ -3,6 +3,7 @@
 
 #include <QList>
 #include <QPointF>
+#include <QString>
 #include <QWidget>
 
 class OfflineMapWidget : public QWidget {
@@ -12,16 +13,23 @@ public:
     explicit OfflineMapWidget(QWidget *parent = nullptr);
 
     void set_tile_root(const QString &path);
+    QString tile_root(void) const;
+    void zoom_in(void);
+    void zoom_out(void);
+    int zoom(void) const;
+    int track_count(void) const;
     void add_position(double latitude, double longitude);
     void clear_track(void);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
+    void wheelEvent(QWheelEvent *event) override;
 
 private:
     QPointF geo_to_world(double latitude, double longitude, int zoom) const;
+    void draw_empty_grid(QPainter *painter, const QString &message) const;
 
-    QString tile_root_ = "tiles";
+    QString tile_root_;
     QList<QPointF> track_;
     int zoom_ = 16;
 };

@@ -201,6 +201,31 @@ void MainWindow::toggle_simulation(void)
     status_label_->setText("Simulation running");
 }
 
+void MainWindow::choose_map_tile_root(void)
+{
+    const QString path = QFileDialog::getExistingDirectory(this,
+                                                           "Select offline map tile root",
+                                                           map_widget_->tile_root());
+    if (path.isEmpty()) {
+        return;
+    }
+
+    map_widget_->set_tile_root(path);
+    update_map_status();
+}
+
+void MainWindow::zoom_map_in(void)
+{
+    map_widget_->zoom_in();
+    update_map_status();
+}
+
+void MainWindow::zoom_map_out(void)
+{
+    map_widget_->zoom_out();
+    update_map_status();
+}
+
 void MainWindow::process_nmea_line(const QString &line)
 {
     GnssEpoch epoch;
@@ -236,6 +261,7 @@ void MainWindow::update_epoch(const GnssEpoch &epoch)
     sky_widget_->set_satellites(epoch.satellites);
     if (epoch.has_fix) {
         map_widget_->add_position(epoch.latitude, epoch.longitude);
+        update_map_status();
     }
     analysis_.add_epoch(epoch);
     analysis_text_->setPlainText(analysis_.summary_text());
@@ -370,10 +396,24 @@ QWidget *MainWindow::create_dashboard_panel(void)
     QVBoxLayout *position_layout = new QVBoxLayout(position_box);
     position_layout->setContentsMargins(14, 22, 14, 14);
     position_dashboard_ = new DashboardWidget("LAT / LON", position_box);
+    QHBoxLayout *map_tools = new QHBoxLayout();
+    QPushButton *tiles_button = new QPushButton("Tiles...", position_box);
+    QPushButton *zoom_out_button = new QPushButton("Zoom -", position_box);
+    QPushButton *zoom_in_button = new QPushButton("Zoom +", position_box);
+    map_status_label_ = new QLabel("Map not initialized", position_box);
+    map_tools->addWidget(tiles_button);
+    map_tools->addWidget(zoom_out_button);
+    map_tools->addWidget(zoom_in_button);
+    map_tools->addWidget(map_status_label_, 1);
     map_widget_ = new OfflineMapWidget(position_box);
-    map_widget_->setMinimumHeight(160);
+    map_widget_->setMinimumHeight(220);
     position_layout->addWidget(position_dashboard_);
+    position_layout->addLayout(map_tools);
     position_layout->addWidget(map_widget_, 1);
+    connect(tiles_button, &QPushButton::clicked, this, &MainWindow::choose_map_tile_root);
+    connect(zoom_out_button, &QPushButton::clicked, this, &MainWindow::zoom_map_out);
+    connect(zoom_in_button, &QPushButton::clicked, this, &MainWindow::zoom_map_in);
+    update_map_status();
 
     QGroupBox *sky_box = new QGroupBox("卫星天空图 / SKY PLOT", panel);
     QVBoxLayout *sky_layout = new QVBoxLayout(sky_box);
@@ -444,6 +484,7 @@ QWidget *MainWindow::create_analysis_panel(void)
         parser_.reset();
         analysis_.clear_epochs();
         map_widget_->clear_track();
+        update_map_status();
         raw_nmea_.clear();
         raw_total_count_ = 0;
         raw_valid_count_ = 0;
@@ -513,4 +554,16 @@ void MainWindow::update_raw_stats(void)
                                   .arg(raw_total_count_)
                                   .arg(raw_valid_count_)
                                   .arg(raw_error_count_));
+}
+
+void MainWindow::update_map_status(void)
+{
+    if (map_status_label_ == nullptr || map_widget_ == nullptr) {
+        return;
+    }
+
+    map_status_label_->setText(QString("z%1 | points:%2 | %3")
+                                   .arg(map_widget_->zoom())
+                                   .arg(map_widget_->track_count())
+                                   .arg(QDir::toNativeSeparators(map_widget_->tile_root())));
 }

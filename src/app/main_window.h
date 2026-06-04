@@ -33,6 +33,9 @@ private slots:
     void load_truth_csv(void);
     void export_report(void);
     void toggle_simulation(void);
+    void choose_map_tile_root(void);
+    void zoom_map_in(void);
+    void zoom_map_out(void);
     void process_nmea_line(const QString &line);
     void update_epoch(const GnssEpoch &epoch);
 
@@ -48,6 +51,7 @@ private:
     CommandMode selected_command_mode(void) const;
     void append_log(const QString &text);
     void update_raw_stats(void);
+    void update_map_status(void);
 
     SerialManager serial_;
     ReplayController replay_;
@@ -72,6 +76,7 @@ private:
     QComboBox *speed_combo_ = nullptr;
     QProgressBar *replay_progress_ = nullptr;
     QPlainTextEdit *analysis_text_ = nullptr;
+    QLabel *map_status_label_ = nullptr;
 
     DashboardWidget *fix_dashboard_ = nullptr;
     DashboardWidget *sat_dashboard_ = nullptr;
