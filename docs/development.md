@@ -158,3 +158,26 @@ mingw32-make
 - 本地离线地图瓦片目录 `tiles/`
 
 如果需要发布可直接运行的程序，应单独打包 release 目录，不放入源码仓库。
+
+## 12. Windows 便携发布包
+
+MSYS2/UCRT64 环境下，`windeployqt` 会部署 Qt DLL 和插件，但不会完整复制 GCC/UCRT64 运行库以及 Qt 依赖的第三方 DLL。因此直接把 `release/GnssCyberpunkHost.exe` 拷到其他 Windows 机器可能无法运行。
+
+发布时应使用 `tools/package_release.ps1` 生成便携目录：
+
+```powershell
+.\tools\package_release.ps1
+```
+
+脚本会执行：
+
+- 重新运行 `qmake` 和 `make release`
+- 创建 `dist/GnssCyberpunkHost`
+- 拷贝 release EXE
+- 运行 `windeployqt`
+- 递归扫描 EXE/DLL 的 `DLL Name` 依赖
+- 从 Qt/MSYS2 UCRT64 `bin` 目录复制缺失的运行库和第三方 DLL
+- 拷贝预置深圳演示瓦片 `release/tiles`
+- 生成 zip 包 `dist/GnssCyberpunkHost-portable.zip`
+
+用户在其他 Windows 机器上应解压整个 `GnssCyberpunkHost` 目录后运行其中的 EXE，不要只复制单个 EXE 文件。

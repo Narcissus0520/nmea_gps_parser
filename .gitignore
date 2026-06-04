@@ -8,6 +8,7 @@ Makefile.Release
 
 # Local map data and generated reports
 tiles/
+dist/
 *.nmea
 *.log
 *_epochs.csv
@@ -20,4 +21,3 @@ gnss_report.html
 *.autosave
 Thumbs.db
 Desktop.ini
-
