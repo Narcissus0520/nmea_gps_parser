@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NMEA GPS Parser Preview</title>
+  <style>
+    :root {
+      --bg: #061522;
+      --panel: #071b2a;
+      --panel-deep: #051321;
+      --line: #007a63;
+      --line-hot: #00f0c8;
+      --green: #00ff91;
+      --cyan: #00c8ff;
+      --pink: #ff00d4;
+      --yellow: #ffff00;
+      --red: #ff2f6d;
+      --text: #b8f7ef;
+      --muted: #66899b;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        repeating-linear-gradient(0deg, rgba(255,255,255,0.018) 0 1px, transparent 1px 4px),
+        linear-gradient(90deg, rgba(0,255,145,0.04), transparent 22%, rgba(0,200,255,0.035) 65%, transparent),
+        var(--bg);
+      color: var(--text);
+      font-family: "Consolas", "Cascadia Mono", "Microsoft YaHei", monospace;
+      letter-spacing: 0;
+      overflow: hidden;
+    }
+
+    button, select, input, textarea {
+      font: inherit;
+    }
+
+    .app {
+      min-width: 1180px;
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: 61px 116px 1fr 120px;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 24px;
+      padding: 0 22px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(5, 16, 28, 0.96);
+      box-shadow: 0 0 18px rgba(0, 255, 145, 0.08);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      color: var(--green);
+      font-size: 19px;
+      font-weight: 800;
+      letter-spacing: 5px;
+    }
+
+    .diamond {
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--green);
+      transform: rotate(45deg);
+      box-shadow: 0 0 12px rgba(0,255,145,0.8);
+    }
+
+    .subtitle {
+      color: #8aa5b7;
+      font-size: 13px;
+    }
+
+    .version {
+      display: inline-block;
+      margin-left: 14px;
+      padding: 5px 14px;
+      border: 1px solid var(--cyan);
+      color: var(--cyan);
+    }
+
+    .connection {
+      padding: 8px 18px;
+      border: 1px solid rgba(255,47,109,0.45);
+      color: var(--red);
+      background: rgba(255,47,109,0.05);
+    }
+
+    .panel {
+      margin: 12px;
+      border: 1px solid var(--line);
+      background: rgba(5, 19, 33, 0.9);
+      box-shadow: inset 0 0 18px rgba(0,255,145,0.025);
+    }
+
+    .panel-title {
+      height: 39px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 16px;
+      border-bottom: 1px solid rgba(0,122,99,0.72);
+      color: var(--green);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 2px;
+    }
+
+    .panel-title::before {
+      content: "▸";
+      color: var(--cyan);
+    }
+
+    .serial-grid {
+      display: grid;
+      grid-template-columns: 120px 120px 120px 120px 140px 1fr 100px 46px;
+      gap: 16px;
+      align-items: end;
+      padding: 18px 18px 12px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 7px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    select, input, textarea {
+      width: 100%;
+      height: 31px;
+      border: 1px solid #0b82a8;
+      background: #061524;
+      color: #f0ffff;
+      padding: 0 10px;
+      outline: none;
+    }
+
+    button {
+      height: 32px;
+      border: 1px solid var(--cyan);
+      color: var(--cyan);
+      background: transparent;
+      padding: 0 16px;
+    }
+
+    button.primary {
+      border-color: var(--green);
+      color: var(--green);
+    }
+
+    button.magenta {
+      border-color: var(--pink);
+      color: var(--pink);
+    }
+
+    button.yellow {
+      border-color: var(--yellow);
+      color: var(--yellow);
+    }
+
+    .dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      margin-right: 8px;
+      border-radius: 50%;
+      background: #34495e;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: 31% 31% 1fr;
+      grid-template-rows: 58% 42%;
+      gap: 0;
+      padding: 0 12px;
+      min-height: 0;
+    }
+
+    .workspace .panel {
+      margin: 0 12px 12px 0;
+      min-height: 0;
+    }
+
+    .dashboard-body {
+      padding: 16px;
+      display: grid;
+      grid-template-rows: 220px 86px;
+      gap: 14px;
+    }
+
+    .gauges {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+
+    .gauge {
+      border: 1px solid rgba(0,122,99,0.7);
+      background:
+        linear-gradient(rgba(0,200,255,0.035) 1px, transparent 1px),
+        rgba(7, 27, 42, 0.72);
+      background-size: 100% 5px;
+      padding: 16px 10px;
+      text-align: center;
+    }
+
+    .gauge .name {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    .gauge .big {
+      margin: 26px 0 8px;
+      color: var(--green);
+      font-size: 30px;
+      font-weight: 900;
+      text-shadow: 0 0 14px rgba(0,255,145,0.65);
+    }
+
+    .compass {
+      width: 92px;
+      height: 92px;
+      margin: 15px auto 0;
+      border: 2px solid var(--cyan);
+      border-radius: 50%;
+      position: relative;
+      box-shadow: 0 0 14px rgba(0,200,255,0.38);
+    }
+
+    .compass::before {
+      content: "";
+      position: absolute;
+      left: 44px;
+      top: 9px;
+      width: 4px;
+      height: 43px;
+      background: linear-gradient(var(--pink), transparent);
+      box-shadow: 0 0 12px var(--pink);
+    }
+
+    .mini-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 8px;
+    }
+
+    .mini {
+      border: 1px solid rgba(0,122,99,0.7);
+      padding: 10px 6px;
+      min-height: 66px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .mini strong {
+      display: block;
+      margin-top: 9px;
+      color: var(--green);
+      font-size: 18px;
+    }
+
+    .position {
+      grid-column: 1;
+      grid-row: 2;
+    }
+
+    .position-body {
+      padding: 16px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .readout {
+      border-bottom: 1px dashed rgba(0,122,99,0.9);
+      padding-bottom: 10px;
+      color: var(--muted);
+    }
+
+    .readout span {
+      float: right;
+      color: var(--green);
+    }
+
+    .sky-panel {
+      grid-column: 2;
+      grid-row: 1 / 3;
+    }
+
+    .sky-body {
+      display: grid;
+      grid-template-rows: minmax(430px, 1fr) 110px;
+      height: calc(100% - 39px);
+      padding: 16px;
+      gap: 14px;
+    }
+
+    .sky-chart {
+      width: 100%;
+      height: 100%;
+      min-height: 410px;
+    }
+
+    .sky-chart text {
+      font-family: Consolas, monospace;
+      dominant-baseline: middle;
+    }
+
+    .sat-list {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+
+    .sat-card {
+      border: 1px solid rgba(0,122,99,0.7);
+      padding: 8px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .sat-card b {
+      color: var(--cyan);
+      font-size: 14px;
+    }
+
+    .raw-panel {
+      grid-column: 3;
+      grid-row: 1 / 3;
+    }
+
+    .raw-tools {
+      height: 51px;
+      border-bottom: 1px solid rgba(0,122,99,0.72);
+      display: grid;
+      grid-template-columns: 1fr 70px 120px 74px;
+      gap: 8px;
+      align-items: center;
+      padding: 0 12px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .raw-tools b {
+      color: var(--green);
+    }
+
+    .raw-log {
+      height: calc(100% - 90px);
+      padding: 16px;
+      color: #9ef8ff;
+      font-size: 12px;
+      white-space: pre-wrap;
+      line-height: 1.7;
+    }
+
+    .bottom {
+      margin: 0 12px 12px;
+      border: 1px solid var(--line);
+      background: rgba(5, 19, 33, 0.95);
+      display: grid;
+      grid-template-columns: auto auto auto 1fr;
+      align-items: center;
+      gap: 22px;
+      padding: 16px 12px;
+      color: var(--cyan);
+      font-size: 12px;
+    }
+
+    .button-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    @media (max-width: 1200px) {
+      body {
+        overflow: auto;
+      }
+
+      .app {
+        min-width: 980px;
+      }
+
+      .workspace {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto auto auto;
+      }
+
+      .sky-panel, .raw-panel, .position {
+        grid-column: 1;
+        grid-row: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div class="brand"><span class="diamond"></span>NMEA GPS PARSER</div>
+      <div class="subtitle">基于 NMEA-0183 协议的 GNSS 报文解析工具 <span class="version">v 1.0.0</span></div>
+      <div class="connection"><span class="dot"></span>未连接</div>
+    </header>
+
+    <section class="panel">
+      <div class="panel-title">串口配置 / SERIAL CONFIG</div>
+      <div class="serial-grid">
+        <div><label>端口</label><select><option>未检测到串口</option></select></div>
+        <div><label>波特率</label><select><option>115200</option><option>9600</option></select></div>
+        <div><label>数据位</label><select><option>8</option></select></div>
+        <div><label>停止位</label><select><option>1</option></select></div>
+        <div><label>校验</label><select><option>None</option></select></div>
+        <div style="color:var(--muted);padding-bottom:8px"><span class="dot"></span>未连接</div>
+        <button class="primary">连接</button>
+        <button>↻</button>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <section class="panel">
+        <div class="panel-title">仪表盘 / DASHBOARD</div>
+        <div class="dashboard-body">
+          <div class="gauges">
+            <div class="gauge">
+              <div class="name">速度<br>(KM/H)</div>
+              <div class="big">42.60</div>
+              <div style="color:var(--cyan)">23.00 kn</div>
+            </div>
+            <div class="gauge">
+              <div class="name">航向 (°)</div>
+              <div class="big">084</div>
+              <div class="compass"></div>
+            </div>
+            <div class="gauge">
+              <div class="name">海拔 (M)</div>
+              <div class="big">31.8</div>
+              <div style="color:var(--cyan)">ellipsoid</div>
+            </div>
+          </div>
+          <div class="mini-grid">
+            <div class="mini">定位质量<strong>3D</strong></div>
+            <div class="mini">HDOP<strong>0.8</strong></div>
+            <div class="mini">VDOP<strong>1.1</strong></div>
+            <div class="mini">PDOP<strong>1.3</strong></div>
+            <div class="mini">定位类型<strong>FIX</strong></div>
+            <div class="mini">校验通过率<strong>98%</strong></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel position">
+        <div class="panel-title">位置信息 / POSITION</div>
+        <div class="position-body">
+          <div class="readout">纬度 LAT <span>31.230416 N</span></div>
+          <div class="readout">经度 LON <span>121.473701 E</span></div>
+          <div class="readout">UTC TIME <span>02:46:03.000</span></div>
+          <div class="readout">搜星 USED / VIEW <span>18 / 28</span></div>
+        </div>
+      </section>
+
+      <section class="panel sky-panel">
+        <div class="panel-title">卫星天空图 / SKY PLOT</div>
+        <div class="sky-body">
+          <svg class="sky-chart" viewBox="0 0 520 520" aria-label="GNSS satellite sky plot">
+            <defs>
+              <filter id="glow">
+                <feGaussianBlur stdDeviation="2.4" result="blur"/>
+                <feMerge>
+                  <feMergeNode in="blur"/>
+                  <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+              </filter>
+            </defs>
+            <rect width="520" height="520" fill="#061522"/>
+            <g transform="translate(260 260)" fill="none">
+              <circle r="210" stroke="#007a63" stroke-width="2"/>
+              <circle r="157" stroke="#00695d" stroke-dasharray="6 6"/>
+              <circle r="105" stroke="#00695d" stroke-dasharray="6 6"/>
+              <circle r="52" stroke="#00695d" stroke-dasharray="6 6"/>
+              <g stroke="#005a70">
+                <line x1="-224" y1="0" x2="224" y2="0"/>
+                <line x1="0" y1="-224" x2="0" y2="224"/>
+                <line x1="-158" y1="-158" x2="158" y2="158"/>
+                <line x1="158" y1="-158" x2="-158" y2="158"/>
+              </g>
+              <g fill="#8aa5b7" font-size="13" text-anchor="middle">
+                <text x="0" y="-239" fill="#ff00d4" font-size="18">N</text>
+                <text x="236" y="0">E</text>
+                <text x="0" y="239">S</text>
+                <text x="-236" y="0">W</text>
+                <text x="18" y="-158">75°</text>
+                <text x="18" y="-105">50°</text>
+                <text x="18" y="-52">25°</text>
+              </g>
+              <g filter="url(#glow)" font-size="12" font-weight="800" text-anchor="middle">
+                <g transform="translate(64 -166)">
+                  <circle r="15" fill="#00ff91"/><text y="1" fill="#001b17">G12</text>
+                </g>
+                <g transform="translate(152 -77)">
+                  <circle r="14" fill="#00c8ff"/><text y="1" fill="#001b17">B07</text>
+                </g>
+                <g transform="translate(-128 -62)">
+                  <circle r="13" fill="#ffff00"/><text y="1" fill="#001b17">G05</text>
+                </g>
+                <g transform="translate(34 42)">
+                  <circle r="12" fill="#00ff91"/><text y="1" fill="#001b17">E19</text>
+                </g>
+                <g transform="translate(-70 134)">
+                  <circle r="11" fill="#00c8ff"/><text y="1" fill="#001b17">R03</text>
+                </g>
+                <g transform="translate(172 126)">
+                  <circle r="10" fill="#ff00d4"/><text y="1" fill="#001b17">B21</text>
+                </g>
+                <g transform="translate(-184 80)">
+                  <circle r="10" fill="#00ff91"/><text y="1" fill="#001b17">G24</text>
+                </g>
+              </g>
+            </g>
+          </svg>
+          <div class="sat-list">
+            <div class="sat-card"><b>G12</b><br>AZ 148° EL 72° CN0 52</div>
+            <div class="sat-card"><b>B07</b><br>AZ 038° EL 66° CN0 47</div>
+            <div class="sat-card"><b>G05</b><br>AZ 250° EL 48° CN0 44</div>
+            <div class="sat-card"><b>E19</b><br>AZ 084° EL 41° CN0 41</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel raw-panel">
+        <div class="panel-title">原始报文 / RAW NMEA</div>
+        <div class="raw-tools">
+          <div>Total: <b>1288</b> Valid: <b>1262</b> Errors: <b style="color:var(--red)">26</b></div>
+          <select><option>ALL</option><option>GGA</option><option>GSV</option></select>
+          <button>✓ 自动滚动</button>
+          <button>清空</button>
+        </div>
+        <div class="raw-log">$GNGGA,024603.00,3113.8250,N,12128.4221,E,1,18,0.8,31.8,M,0.0,M,,*5A
+$GNRMC,024603.00,A,3113.8250,N,12128.4221,E,23.0,084.4,040626,,,A*68
+$GPGSA,A,3,12,05,24,03,29,31,17,19,22,,,,1.3,0.8,1.1*32
+$GPGSV,3,1,12,12,72,148,52,05,48,250,44,24,29,076,31,03,18,310,37*7F
+$BDGSV,2,1,08,07,66,038,47,21,22,186,34,16,41,120,30,30,12,260,28*61
+$GNVTG,084.4,T,,M,23.0,N,42.6,K,A*27</div>
+      </section>
+    </section>
+
+    <footer class="bottom">
+      <div>数据记录 / RECORD</div>
+      <div class="button-row">
+        <button class="primary">● 开始记录</button>
+        <button class="yellow">标准测试</button>
+        <button>模拟移动</button>
+        <button>低信号</button>
+        <button>无效数据</button>
+      </div>
+      <div>数据回放 / REPLAY</div>
+      <div class="button-row">
+        <button class="magenta">载入文件回放</button>
+        <button>导出 CSV</button>
+        <button>导出 JSON</button>
+        <button>导出 GPX</button>
+        <button>导出 NMEA</button>
+      </div>
+    </footer>
+  </main>
+</body>
+</html>

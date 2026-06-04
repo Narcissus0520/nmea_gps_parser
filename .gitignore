@@ -1,0 +1,23 @@
+# Qt/qmake build outputs
+debug/
+release/
+Makefile
+Makefile.Debug
+Makefile.Release
+.qmake.stash
+
+# Local map data and generated reports
+tiles/
+*.nmea
+*.log
+*_epochs.csv
+gnss_report.html
+
+# Editor/system files
+.vscode/
+.idea/
+*.user
+*.autosave
+Thumbs.db
+Desktop.ini
+

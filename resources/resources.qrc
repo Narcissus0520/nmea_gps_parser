@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/">
+        <file>cyberpunk.qss</file>
+    </qresource>
+</RCC>
+
