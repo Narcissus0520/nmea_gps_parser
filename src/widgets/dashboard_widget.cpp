@@ -2,12 +2,25 @@
 
 #include <QPainter>
 #include <QPaintEvent>
+#include <QSizePolicy>
 
 DashboardWidget::DashboardWidget(const QString &title, QWidget *parent)
     : QWidget(parent),
       title_(title)
 {
-    setMinimumSize(160, 110);
+    setMinimumSize(82, 56);
+    setMaximumHeight(76);
+    setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+}
+
+QSize DashboardWidget::sizeHint(void) const
+{
+    return QSize(92, 64);
+}
+
+QSize DashboardWidget::minimumSizeHint(void) const
+{
+    return QSize(82, 56);
 }
 
 void DashboardWidget::set_value(const QString &value)
@@ -29,7 +42,7 @@ void DashboardWidget::paintEvent(QPaintEvent *event)
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
 
-    const QRectF rect = this->rect().adjusted(4, 4, -4, -4);
+    const QRectF rect = this->rect().adjusted(3, 3, -3, -3);
     painter.fillRect(rect, QColor("#071b2a"));
     painter.setPen(QPen(QColor("#007a63"), 1));
     painter.drawRect(rect);
@@ -40,14 +53,14 @@ void DashboardWidget::paintEvent(QPaintEvent *event)
     }
 
     painter.setPen(QColor("#66899b"));
-    painter.setFont(QFont("Consolas", 8, QFont::Bold));
-    painter.drawText(rect.adjusted(10, 8, -10, -8), Qt::AlignTop | Qt::AlignLeft, title_);
+    painter.setFont(QFont("Consolas", 7, QFont::Bold));
+    painter.drawText(rect.adjusted(7, 5, -7, -5), Qt::AlignTop | Qt::AlignLeft, title_);
 
     painter.setPen(QColor("#00ff91"));
-    painter.setFont(QFont("Consolas", value_.contains('\n') ? 14 : 24, QFont::Bold));
+    painter.setFont(QFont("Consolas", value_.contains('\n') ? 10 : 16, QFont::Bold));
     painter.drawText(rect, Qt::AlignCenter, value_);
 
     painter.setPen(QColor("#00c8ff"));
-    painter.setFont(QFont("Consolas", 8));
-    painter.drawText(rect.adjusted(10, 0, -10, -8), Qt::AlignBottom | Qt::AlignRight, subtitle_);
+    painter.setFont(QFont("Consolas", 7));
+    painter.drawText(rect.adjusted(7, 0, -7, -5), Qt::AlignBottom | Qt::AlignRight, subtitle_);
 }

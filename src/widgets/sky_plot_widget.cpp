@@ -1,13 +1,16 @@
 #include "sky_plot_widget.h"
 
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPaintEvent>
+#include <QToolTip>
 #include <QtMath>
 
 SkyPlotWidget::SkyPlotWidget(QWidget *parent)
     : QWidget(parent)
 {
-    setMinimumSize(360, 360);
+    setMinimumSize(320, 300);
+    setMouseTracking(true);
 }
 
 void SkyPlotWidget::set_satellites(const QList<SatelliteInfo> &satellites)
@@ -24,9 +27,11 @@ void SkyPlotWidget::paintEvent(QPaintEvent *event)
     painter.setRenderHint(QPainter::Antialiasing);
     painter.fillRect(rect(), QColor("#061522"));
 
-    const QRectF plot_rect = rect().adjusted(18, 24, -18, -34);
+    rendered_satellites_.clear();
+
+    const QRectF plot_rect = rect().adjusted(8, 20, -8, -28);
     const QPointF center(plot_rect.center());
-    const double radius = qMin(plot_rect.width(), plot_rect.height()) / 2.0 - 8.0;
+    const double radius = qMin(plot_rect.width(), plot_rect.height()) / 2.0 - 2.0;
 
     painter.setPen(QPen(QColor("#00c8ff"), 1));
     painter.drawText(10, 18, "Satellite Distribution");
@@ -77,12 +82,18 @@ void SkyPlotWidget::paintEvent(QPaintEvent *event)
             color = QColor("#ffae00");
         }
 
-        const double size = qBound(8.0, 7.0 + sat.cn0 / 5.0, 16.0);
+        const double size = qBound(4.0, 3.0 + sat.cn0 / 12.0, 7.0);
+        const QRectF hit_rect(point.x() - size - 4.0,
+                              point.y() - size - 4.0,
+                              (size + 4.0) * 2.0,
+                              (size + 4.0) * 2.0);
+        rendered_satellites_.append({sat, hit_rect});
+
         painter.setBrush(color);
         painter.setPen(QPen(QColor("#f0ffff"), 1));
         painter.drawEllipse(point, size, size);
         painter.setPen(QColor("#001b17"));
-        painter.setFont(QFont("Consolas", 7, QFont::Bold));
+        painter.setFont(QFont("Consolas", 6, QFont::Bold));
         painter.drawText(QRectF(point.x() - size, point.y() - 6, size * 2.0, 12),
                          Qt::AlignCenter,
                          QString("%1%2").arg(sat.constellation.left(1)).arg(sat.prn));
@@ -93,4 +104,37 @@ void SkyPlotWidget::paintEvent(QPaintEvent *event)
     painter.drawText(rect().adjusted(10, 0, -10, -8),
                      Qt::AlignLeft | Qt::AlignBottom,
                      QString("可见卫星 / VISIBLE: %1").arg(satellites_.size()));
+}
+
+void SkyPlotWidget::mousePressEvent(QMouseEvent *event)
+{
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    const QPointF click_position = event->position();
+#else
+    const QPointF click_position = event->localPos();
+#endif
+    for (int i = rendered_satellites_.size() - 1; i >= 0; --i) {
+        const RenderedSatellite &rendered = rendered_satellites_.at(i);
+        if (!rendered.hit_rect.contains(click_position)) {
+            continue;
+        }
+
+        const SatelliteInfo &sat = rendered.satellite;
+        const QString text = QString("%1 PRN %2\n俯仰角: %3°\n方位角: %4°\nCN0: %5 dB-Hz")
+                                 .arg(sat.constellation.isEmpty() ? "GNSS" : sat.constellation)
+                                 .arg(sat.prn)
+                                 .arg(sat.elevation)
+                                 .arg(sat.azimuth)
+                                 .arg(sat.cn0);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        QToolTip::showText(event->globalPosition().toPoint(), text, this);
+#else
+        QToolTip::showText(event->globalPos(), text, this);
+#endif
+        event->accept();
+        return;
+    }
+
+    QToolTip::hideText();
+    QWidget::mousePressEvent(event);
 }

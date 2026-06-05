@@ -8,14 +8,21 @@
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QMessageBox>
+#include <QSizePolicy>
 #include <QTextStream>
 #include <QVBoxLayout>
+
+namespace {
+constexpr qsizetype max_raw_nmea_bytes = 64 * 1024 * 1024;
+constexpr int max_stored_epochs = 200000;
+}
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
     setWindowTitle("GNSS Cyberpunk Host");
     resize(1384, 840);
+    setMinimumSize(1180, 740);
 
     QWidget *central = new QWidget(this);
     QVBoxLayout *root_layout = new QVBoxLayout(central);
@@ -31,7 +38,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(&serial_, &SerialManager::line_received, this, &MainWindow::process_nmea_line);
     connect(&serial_, &SerialManager::raw_received, this, [this](const QByteArray &data) {
-        raw_nmea_.append(data);
+        append_raw_nmea(data);
     });
     connect(&serial_, &SerialManager::status_changed, status_label_, &QLabel::setText);
     connect(&serial_, &SerialManager::error_message, this, [this](const QString &message) {
@@ -44,8 +51,8 @@ MainWindow::MainWindow(QWidget *parent)
     });
     connect(&replay_, &ReplayController::status_changed, this, &MainWindow::append_log);
     connect(&simulation_, &SimulationController::line_generated, this, [this](const QString &line) {
-        raw_nmea_.append(line.toUtf8());
-        raw_nmea_.append("\r\n");
+        append_raw_nmea(line.toUtf8());
+        append_raw_nmea("\r\n");
         process_nmea_line(line);
     });
     connect(&simulation_, &SimulationController::status_changed, this, &MainWindow::append_log);
@@ -65,10 +72,11 @@ QWidget *MainWindow::create_header_panel(void)
     brand->setObjectName("brandLabel");
     QLabel *subtitle = new QLabel("基于 NMEA-0183 协议的 GNSS 报文解析工具", panel);
     subtitle->setObjectName("subtitleLabel");
-    QLabel *version = new QLabel("v 1.0.0", panel);
+    QLabel *version = new QLabel("v 1.1.2", panel);
     version->setObjectName("versionLabel");
     QLabel *state = new QLabel("● 未连接", panel);
     state->setObjectName("connectionLabel");
+    state->setMinimumWidth(150);
     status_label_ = state;
 
     layout->addWidget(brand);
@@ -214,6 +222,23 @@ void MainWindow::choose_map_tile_root(void)
     update_map_status();
 }
 
+void MainWindow::show_map_tile_help(void)
+{
+    QMessageBox::information(
+        this,
+        "地图瓦片 / Map Tiles",
+        "离线地图使用 PNG XYZ 瓦片目录：\n"
+        "{root}/{z}/{x}/{y}.png\n\n"
+        "加载新瓦片：\n"
+        "1. 准备一个瓦片根目录，例如 D:/maps/shenzhen_tiles。\n"
+        "2. 确认目录下存在 16/52364/34012.png 这类 z/x/y.png 文件。\n"
+        "3. 点击 Tiles...，选择这个根目录。\n"
+        "4. 用 Zoom + / Zoom - 或鼠标滚轮切换缩放级别。\n\n"
+        "下载/准备瓦片：\n"
+        "当前工具不内置批量抓取公网瓦片功能，避免违反地图服务条款。请使用授权地图源、公司内部地图服务或离线地图工具导出 PNG XYZ 瓦片后再加载。\n\n"
+        "如果当前位置对应缩放级别没有瓦片，地图会显示深色网格，但轨迹仍会正常绘制。");
+}
+
 void MainWindow::zoom_map_in(void)
 {
     map_widget_->zoom_in();
@@ -241,6 +266,13 @@ void MainWindow::process_nmea_line(const QString &line)
 
 void MainWindow::update_epoch(const GnssEpoch &epoch)
 {
+    latest_epoch_ = epoch;
+    has_latest_epoch_ = true;
+    stored_epochs_.append(epoch);
+    while (stored_epochs_.size() > max_stored_epochs) {
+        stored_epochs_.removeFirst();
+    }
+
     fix_dashboard_->set_value(epoch.has_fix ? "FIX" : "NO FIX");
     fix_dashboard_->set_subtitle(QString("Q%1 T%2").arg(epoch.fix_quality).arg(epoch.fix_type));
     sat_dashboard_->set_value(QString::number(epoch.satellites_used));
@@ -257,13 +289,12 @@ void MainWindow::update_epoch(const GnssEpoch &epoch)
                                   .arg(epoch.hdop, 0, 'f', 1)
                                   .arg(epoch.pdop, 0, 'f', 1));
     dop_dashboard_->set_subtitle("DOP");
-    cn0_widget_->set_satellites(epoch.satellites);
-    sky_widget_->set_satellites(epoch.satellites);
+    refresh_satellite_views(epoch);
     if (epoch.has_fix) {
         map_widget_->add_position(epoch.latitude, epoch.longitude);
         update_map_status();
     }
-    analysis_.add_epoch(epoch);
+    analysis_.add_epoch(epoch_with_filtered_satellites(epoch));
     analysis_text_->setPlainText(analysis_.summary_text());
 }
 
@@ -380,7 +411,9 @@ QWidget *MainWindow::create_dashboard_panel(void)
 
     QGroupBox *dashboard_box = new QGroupBox("仪表盘 / DASHBOARD", panel);
     QGridLayout *dashboard_layout = new QGridLayout(dashboard_box);
-    dashboard_layout->setContentsMargins(16, 22, 16, 14);
+    dashboard_layout->setContentsMargins(10, 18, 10, 10);
+    dashboard_layout->setHorizontalSpacing(8);
+    dashboard_layout->setVerticalSpacing(6);
     fix_dashboard_ = new DashboardWidget("定位质量", dashboard_box);
     sat_dashboard_ = new DashboardWidget("搜星", dashboard_box);
     speed_dashboard_ = new DashboardWidget("速度", dashboard_box);
@@ -391,37 +424,59 @@ QWidget *MainWindow::create_dashboard_panel(void)
     dashboard_layout->addWidget(alt_dashboard_, 0, 2);
     dashboard_layout->addWidget(fix_dashboard_, 1, 0);
     dashboard_layout->addWidget(sat_dashboard_, 1, 1);
+    dashboard_box->setMaximumHeight(170);
 
     QGroupBox *position_box = new QGroupBox("位置信息 / POSITION", panel);
     QVBoxLayout *position_layout = new QVBoxLayout(position_box);
-    position_layout->setContentsMargins(14, 22, 14, 14);
+    position_layout->setContentsMargins(10, 18, 10, 10);
+    position_layout->setSpacing(8);
     position_dashboard_ = new DashboardWidget("LAT / LON", position_box);
     QHBoxLayout *map_tools = new QHBoxLayout();
+    map_tools->setSpacing(8);
     QPushButton *tiles_button = new QPushButton("Tiles...", position_box);
+    QPushButton *map_help_button = new QPushButton("Help", position_box);
     QPushButton *zoom_out_button = new QPushButton("Zoom -", position_box);
     QPushButton *zoom_in_button = new QPushButton("Zoom +", position_box);
     map_status_label_ = new QLabel("Map not initialized", position_box);
+    map_status_label_->setMinimumWidth(170);
+    map_status_label_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     map_tools->addWidget(tiles_button);
+    map_tools->addWidget(map_help_button);
     map_tools->addWidget(zoom_out_button);
     map_tools->addWidget(zoom_in_button);
     map_tools->addWidget(map_status_label_, 1);
     map_widget_ = new OfflineMapWidget(position_box);
-    map_widget_->setMinimumHeight(220);
+    map_widget_->setMinimumHeight(240);
     position_layout->addWidget(position_dashboard_);
     position_layout->addLayout(map_tools);
     position_layout->addWidget(map_widget_, 1);
     connect(tiles_button, &QPushButton::clicked, this, &MainWindow::choose_map_tile_root);
+    connect(map_help_button, &QPushButton::clicked, this, &MainWindow::show_map_tile_help);
     connect(zoom_out_button, &QPushButton::clicked, this, &MainWindow::zoom_map_out);
     connect(zoom_in_button, &QPushButton::clicked, this, &MainWindow::zoom_map_in);
     update_map_status();
 
     QGroupBox *sky_box = new QGroupBox("卫星天空图 / SKY PLOT", panel);
     QVBoxLayout *sky_layout = new QVBoxLayout(sky_box);
-    sky_layout->setContentsMargins(14, 22, 14, 14);
+    sky_layout->setContentsMargins(14, 20, 14, 14);
+    sky_layout->setSpacing(8);
+    QHBoxLayout *sat_filter_layout = new QHBoxLayout();
+    sat_filter_layout->setSpacing(6);
+    sat_filter_layout->addWidget(new QLabel("Filter", sky_box));
+    const QStringList constellations = {"GPS", "BDS", "GLO", "GAL", "QZSS", "GNSS"};
+    for (const QString &constellation : constellations) {
+        QCheckBox *check_box = new QCheckBox(constellation, sky_box);
+        check_box->setChecked(true);
+        constellation_filter_checks_.append(check_box);
+        sat_filter_layout->addWidget(check_box);
+        connect(check_box, &QCheckBox::toggled, this, &MainWindow::update_satellite_filter);
+    }
+    sat_filter_layout->addStretch();
     sky_widget_ = new SkyPlotWidget(sky_box);
     cn0_widget_ = new Cn0BarWidget(sky_box);
-    sky_layout->addWidget(sky_widget_, 1);
-    sky_layout->addWidget(cn0_widget_);
+    sky_layout->addLayout(sat_filter_layout);
+    sky_layout->addWidget(sky_widget_, 4);
+    sky_layout->addWidget(cn0_widget_, 1);
 
     QGroupBox *raw_box = new QGroupBox("原始报文 / RAW NMEA", panel);
     QVBoxLayout *raw_layout = new QVBoxLayout(raw_box);
@@ -446,11 +501,11 @@ QWidget *MainWindow::create_dashboard_panel(void)
     layout->addWidget(position_box, 1, 0);
     layout->addWidget(sky_box, 0, 1, 2, 1);
     layout->addWidget(raw_box, 0, 2, 2, 1);
-    layout->setColumnStretch(0, 31);
-    layout->setColumnStretch(1, 31);
-    layout->setColumnStretch(2, 38);
-    layout->setRowStretch(0, 58);
-    layout->setRowStretch(1, 42);
+    layout->setColumnStretch(0, 34);
+    layout->setColumnStretch(1, 30);
+    layout->setColumnStretch(2, 36);
+    layout->setRowStretch(0, 26);
+    layout->setRowStretch(1, 74);
     return panel;
 }
 
@@ -483,9 +538,12 @@ QWidget *MainWindow::create_analysis_panel(void)
         }
         parser_.reset();
         analysis_.clear_epochs();
+        stored_epochs_.clear();
+        has_latest_epoch_ = false;
         map_widget_->clear_track();
         update_map_status();
         raw_nmea_.clear();
+        raw_buffer_truncated_ = false;
         raw_total_count_ = 0;
         raw_valid_count_ = 0;
         raw_error_count_ = 0;
@@ -544,6 +602,24 @@ void MainWindow::append_log(const QString &text)
     }
 }
 
+void MainWindow::append_raw_nmea(const QByteArray &data)
+{
+    if (data.isEmpty()) {
+        return;
+    }
+
+    raw_nmea_.append(data);
+    if (raw_nmea_.size() <= max_raw_nmea_bytes) {
+        return;
+    }
+
+    raw_nmea_.remove(0, raw_nmea_.size() - max_raw_nmea_bytes);
+    if (!raw_buffer_truncated_) {
+        raw_buffer_truncated_ = true;
+        append_log("[security] Raw NMEA buffer capped at 64 MiB; older bytes were discarded.");
+    }
+}
+
 void MainWindow::update_raw_stats(void)
 {
     if (raw_stats_label_ == nullptr) {
@@ -562,8 +638,67 @@ void MainWindow::update_map_status(void)
         return;
     }
 
-    map_status_label_->setText(QString("z%1 | points:%2 | %3")
+    const QString tile_name = QDir(map_widget_->tile_root()).dirName();
+    map_status_label_->setText(QString("z%1 | pts:%2 | tiles:%3")
                                    .arg(map_widget_->zoom())
                                    .arg(map_widget_->track_count())
-                                   .arg(QDir::toNativeSeparators(map_widget_->tile_root())));
+                                   .arg(tile_name.isEmpty() ? "default" : tile_name));
+}
+
+void MainWindow::update_satellite_filter(void)
+{
+    if (has_latest_epoch_) {
+        refresh_satellite_views(latest_epoch_);
+    }
+    rebuild_analysis();
+}
+
+QList<SatelliteInfo> MainWindow::filtered_satellites(const QList<SatelliteInfo> &satellites) const
+{
+    QSet<QString> enabled_constellations;
+    for (const QCheckBox *check_box : constellation_filter_checks_) {
+        if (check_box != nullptr && check_box->isChecked()) {
+            enabled_constellations.insert(check_box->text());
+        }
+    }
+
+    if (enabled_constellations.isEmpty()) {
+        return {};
+    }
+
+    QList<SatelliteInfo> filtered;
+    for (const SatelliteInfo &satellite : satellites) {
+        const QString constellation = satellite.constellation.isEmpty() ? "GNSS" : satellite.constellation;
+        if (enabled_constellations.contains(constellation)) {
+            filtered.append(satellite);
+        }
+    }
+    return filtered;
+}
+
+GnssEpoch MainWindow::epoch_with_filtered_satellites(const GnssEpoch &epoch) const
+{
+    GnssEpoch filtered_epoch = epoch;
+    filtered_epoch.satellites = filtered_satellites(epoch.satellites);
+    filtered_epoch.satellites_used = filtered_epoch.satellites.size();
+    return filtered_epoch;
+}
+
+void MainWindow::refresh_satellite_views(const GnssEpoch &epoch)
+{
+    const QList<SatelliteInfo> satellites = filtered_satellites(epoch.satellites);
+    cn0_widget_->set_satellites(satellites);
+    sky_widget_->set_satellites(satellites);
+}
+
+void MainWindow::rebuild_analysis(void)
+{
+    analysis_.clear_epochs();
+    for (const GnssEpoch &epoch : stored_epochs_) {
+        analysis_.add_epoch(epoch_with_filtered_satellites(epoch));
+    }
+
+    if (analysis_text_ != nullptr) {
+        analysis_text_->setPlainText(analysis_.summary_text());
+    }
 }

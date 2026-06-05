@@ -3,7 +3,11 @@
 
 #include "../nmea/gnss_types.h"
 
+#include <QList>
+#include <QRectF>
 #include <QWidget>
+
+class QMouseEvent;
 
 class SkyPlotWidget : public QWidget {
     Q_OBJECT
@@ -15,9 +19,16 @@ public:
 
 protected:
     void paintEvent(QPaintEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
 
 private:
+    struct RenderedSatellite {
+        SatelliteInfo satellite;
+        QRectF hit_rect;
+    };
+
     QList<SatelliteInfo> satellites_;
+    QList<RenderedSatellite> rendered_satellites_;
 };
 
 #endif

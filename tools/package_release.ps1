@@ -5,6 +5,14 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Assert-SafePackageName {
+    param([string]$Name)
+
+    if (-not $Name -or -not ($Name -match '^[A-Za-z0-9_.-]+$')) {
+        throw "Invalid package name. Use only letters, digits, dot, underscore, and hyphen."
+    }
+}
+
 function Get-ProjectRoot {
     return (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 }
@@ -76,6 +84,7 @@ function Find-DependencySource {
 
 $projectRoot = Get-ProjectRoot
 Set-Location $projectRoot
+Assert-SafePackageName -Name $PackageName
 
 $qtBins = (& qmake -query QT_INSTALL_BINS).Trim()
 if (-not $qtBins) {
@@ -95,6 +104,7 @@ $packageDir = Join-Path $distRoot $PackageName
 $zipPath = Join-Path $distRoot "$PackageName-portable.zip"
 Assert-InsideProject -Path $distRoot -ProjectRoot $projectRoot
 Assert-InsideProject -Path $packageDir -ProjectRoot $projectRoot
+Assert-InsideProject -Path $zipPath -ProjectRoot $projectRoot
 
 if (Test-Path $packageDir) {
     Remove-Item -LiteralPath $packageDir -Recurse -Force

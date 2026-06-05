@@ -2,6 +2,11 @@
 
 #include <QSerialPortInfo>
 
+namespace {
+constexpr int max_serial_buffer_bytes = 8192;
+constexpr int max_nmea_line_bytes = 4096;
+}
+
 SerialManager::SerialManager(QObject *parent)
     : QObject(parent)
 {
@@ -95,6 +100,12 @@ void SerialManager::read_ready_data(void)
     emit raw_received(data);
 
     buffer_.append(data);
+    if (buffer_.size() > max_serial_buffer_bytes) {
+        buffer_.clear();
+        emit error_message("Serial receive buffer exceeded safety limit; buffered bytes were discarded.");
+        return;
+    }
+
     while (true) {
         int newline_index = buffer_.indexOf('\n');
         if (newline_index < 0) {
@@ -103,6 +114,10 @@ void SerialManager::read_ready_data(void)
 
         QByteArray line = buffer_.left(newline_index + 1);
         buffer_.remove(0, newline_index + 1);
+        if (line.size() > max_nmea_line_bytes) {
+            emit error_message("NMEA line exceeded safety limit and was ignored.");
+            continue;
+        }
         emit line_received(QString::fromUtf8(line).trimmed());
     }
 }

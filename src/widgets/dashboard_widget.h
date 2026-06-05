@@ -9,6 +9,8 @@ class DashboardWidget : public QWidget {
 public:
     explicit DashboardWidget(const QString &title, QWidget *parent = nullptr);
 
+    QSize sizeHint(void) const override;
+    QSize minimumSizeHint(void) const override;
     void set_value(const QString &value);
     void set_subtitle(const QString &subtitle);
 

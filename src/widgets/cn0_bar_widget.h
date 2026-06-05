@@ -3,7 +3,13 @@
 
 #include "../nmea/gnss_types.h"
 
+#include <QColor>
+#include <QString>
+#include <QStringList>
 #include <QWidget>
+
+class QPainter;
+class QRect;
 
 class Cn0BarWidget : public QWidget {
     Q_OBJECT
@@ -17,7 +23,14 @@ protected:
     void paintEvent(QPaintEvent *event) override;
 
 private:
-    QList<SatelliteInfo> top_satellites(void) const;
+    QStringList constellation_order(void) const;
+    QList<SatelliteInfo> top_satellites_for_constellation(const QString &constellation) const;
+    QColor constellation_color(const QString &constellation) const;
+    QString constellation_label_prefix(const QString &constellation) const;
+    void draw_constellation_group(QPainter *painter,
+                                  const QRect &group_rect,
+                                  const QString &constellation,
+                                  const QList<SatelliteInfo> &top) const;
 
     QList<SatelliteInfo> satellites_;
 };

@@ -1,7 +1,13 @@
 #include "replay_controller.h"
 
 #include <QFile>
+#include <QFileInfo>
 #include <QTextStream>
+
+namespace {
+constexpr qint64 max_replay_file_bytes = 64 * 1024 * 1024;
+constexpr int max_replay_line_chars = 4096;
+}
 
 ReplayController::ReplayController(QObject *parent)
     : QObject(parent)
@@ -12,6 +18,14 @@ ReplayController::ReplayController(QObject *parent)
 
 bool ReplayController::load_file(const QString &path, QString *error)
 {
+    const QFileInfo info(path);
+    if (info.size() > max_replay_file_bytes) {
+        if (error != nullptr) {
+            *error = "Replay file is too large. Maximum allowed size is 64 MiB.";
+        }
+        return false;
+    }
+
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         if (error != nullptr) {
@@ -24,6 +38,13 @@ bool ReplayController::load_file(const QString &path, QString *error)
     QTextStream stream(&file);
     while (!stream.atEnd()) {
         const QString line = stream.readLine().trimmed();
+        if (line.size() > max_replay_line_chars) {
+            if (error != nullptr) {
+                *error = "Replay file contains an overlong line.";
+            }
+            lines_.clear();
+            return false;
+        }
         if (!line.isEmpty()) {
             lines_.append(line);
         }

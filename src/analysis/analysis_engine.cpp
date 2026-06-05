@@ -1,9 +1,18 @@
 #include "analysis_engine.h"
 
 #include <QFile>
+#include <QFileInfo>
 #include <QTextStream>
 #include <QtMath>
 #include <algorithm>
+#include <cmath>
+
+namespace {
+constexpr qint64 max_truth_file_bytes = 16 * 1024 * 1024;
+constexpr int max_truth_line_chars = 4096;
+constexpr int max_truth_points = 200000;
+constexpr int max_analysis_epochs = 200000;
+}
 
 AnalysisEngine::AnalysisEngine(QObject *parent)
     : QObject(parent)
@@ -12,6 +21,14 @@ AnalysisEngine::AnalysisEngine(QObject *parent)
 
 bool AnalysisEngine::load_truth_csv(const QString &path, QString *error)
 {
+    const QFileInfo info(path);
+    if (info.size() > max_truth_file_bytes) {
+        if (error != nullptr) {
+            *error = "Truth CSV is too large. Maximum allowed size is 16 MiB.";
+        }
+        return false;
+    }
+
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         if (error != nullptr) {
@@ -25,6 +42,13 @@ bool AnalysisEngine::load_truth_csv(const QString &path, QString *error)
     bool first_line = true;
     while (!stream.atEnd()) {
         const QString line = stream.readLine().trimmed();
+        if (line.size() > max_truth_line_chars) {
+            if (error != nullptr) {
+                *error = "Truth CSV contains an overlong line.";
+            }
+            truth_points_.clear();
+            return false;
+        }
         if (line.isEmpty()) {
             continue;
         }
@@ -40,12 +64,32 @@ bool AnalysisEngine::load_truth_csv(const QString &path, QString *error)
         }
 
         TruthPoint point;
+        bool latitude_ok = false;
+        bool longitude_ok = false;
+        bool altitude_ok = false;
         point.timestamp = QDateTime::fromString(fields.at(0).trimmed(), Qt::ISODate);
-        point.latitude = fields.at(1).trimmed().toDouble();
-        point.longitude = fields.at(2).trimmed().toDouble();
-        point.altitude = fields.at(3).trimmed().toDouble();
-        if (point.timestamp.isValid()) {
+        point.latitude = fields.at(1).trimmed().toDouble(&latitude_ok);
+        point.longitude = fields.at(2).trimmed().toDouble(&longitude_ok);
+        point.altitude = fields.at(3).trimmed().toDouble(&altitude_ok);
+        const bool coordinates_valid = latitude_ok
+                                       && longitude_ok
+                                       && altitude_ok
+                                       && std::isfinite(point.latitude)
+                                       && std::isfinite(point.longitude)
+                                       && std::isfinite(point.altitude)
+                                       && point.latitude >= -90.0
+                                       && point.latitude <= 90.0
+                                       && point.longitude >= -180.0
+                                       && point.longitude <= 180.0;
+        if (point.timestamp.isValid() && coordinates_valid) {
             truth_points_.append(point);
+            if (truth_points_.size() > max_truth_points) {
+                if (error != nullptr) {
+                    *error = "Truth CSV contains too many points.";
+                }
+                truth_points_.clear();
+                return false;
+            }
         }
     }
 
@@ -61,6 +105,9 @@ void AnalysisEngine::add_epoch(const GnssEpoch &epoch)
 {
     if (epoch.timestamp.isValid() || epoch.has_fix) {
         epochs_.append(epoch);
+        while (epochs_.size() > max_analysis_epochs) {
+            epochs_.removeFirst();
+        }
     }
 }
 
