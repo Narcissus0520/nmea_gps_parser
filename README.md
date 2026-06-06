@@ -4,7 +4,7 @@ GNSS Cyberpunk Host is a C++ Qt desktop upper-computer tool for parsing NMEA-018
 
 ## Version
 
-Current version: `v1.2.1`
+Current version: `v1.3.0`
 
 ## Features
 
@@ -15,12 +15,16 @@ Current version: `v1.2.1`
 - GGA/RMC/GSA/GSV/VTG parsing
 - Offline NMEA replay
 - Draggable offline replay progress seeking
+- Stable replay seeking with state rebuild
 - Simulated NMEA data mode
 - GNSS dashboard, sky plot, per-constellation TOP7 CN0 chart, raw NMEA log
-- Satellite constellation filtering for sky plot, CN0 chart, and analysis
+- Satellite constellation, CN0, azimuth, and elevation filtering for sky plot, CN0 chart, and analysis
 - Offline map track view using `tiles/{z}/{x}/{y}.png`
 - In-app map tile loading help
 - Truth CSV import and precision analysis
+- Batch NMEA analysis report import with per-second trend charts
+- NMEA to KML and KML to NMEA conversion
+- In-app quick start and feature guide
 - HTML and CSV report export
 - Portable Windows release package script
 - C++ unit test coverage for NMEA parsing and command encoding
@@ -61,6 +65,18 @@ preview/gnss_preview.html
 Build outputs and local map tiles are intentionally excluded from Git.
 
 ## Version History
+
+### v1.3.0 - 2026-06-06
+
+上库修改点：
+
+- Fixed replay progress dragging by seeking on release and rebuilding parser/UI state to the target epoch.
+- Fixed replay CN0 refresh by preserving parsed GSV satellite state during replay seek/rebuild.
+- Added sky plot filters for CN0, azimuth, and elevation ranges, and hid CN0=0 satellites from real-time sky display.
+- Expanded fix quality display to include 2D/3D/VDR/RTK style categories.
+- Added batch NMEA analysis import and richer HTML report sections for per-second satellite, DOP, CN0, speed, and course trends.
+- Added NMEA/KML conversion actions.
+- Added an in-app quick start guide so users can understand the main workflows after opening the tool.
 
 ### v1.2.1 - 2026-06-06
 

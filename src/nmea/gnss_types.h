@@ -11,6 +11,7 @@ struct SatelliteInfo {
     int elevation = 0;
     int azimuth = 0;
     int cn0 = 0;
+    bool used = false;
 };
 
 struct GnssEpoch {
@@ -18,6 +19,8 @@ struct GnssEpoch {
     bool has_fix = false;
     int fix_quality = 0;
     int fix_type = 0;
+    QString fix_category;
+    QString positioning_mode;
     double latitude = 0.0;
     double longitude = 0.0;
     double altitude = 0.0;

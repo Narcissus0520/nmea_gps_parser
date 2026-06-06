@@ -19,6 +19,7 @@ public:
     void set_speed(double speed);
     int progress(void) const;
     int total_count(void) const;
+    QStringList lines_until(int count) const;
 
 signals:
     void line_replayed(const QString &line);

@@ -22,6 +22,7 @@
 #include <QSet>
 #include <QSerialPort>
 #include <QSlider>
+#include <QSpinBox>
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -35,10 +36,14 @@ private slots:
     void send_command(void);
     void load_command_test_file(void);
     void toggle_command_test_run(void);
+    void show_quick_start_help(void);
     void load_replay_file(void);
     void export_nmea(void);
+    void load_analysis_nmea(void);
     void load_truth_csv(void);
     void export_report(void);
+    void convert_nmea_to_kml(void);
+    void convert_kml_to_nmea(void);
     void toggle_simulation(void);
     void choose_map_tile_root(void);
     void show_map_tile_help(void);
@@ -47,6 +52,7 @@ private slots:
     void process_nmea_line(const QString &line);
     void update_epoch(const GnssEpoch &epoch);
     void update_satellite_filter(void);
+    void handle_replay_slider_released(void);
 
 private:
     QWidget *create_header_panel(void);
@@ -69,6 +75,10 @@ private:
     GnssEpoch epoch_with_filtered_satellites(const GnssEpoch &epoch) const;
     void refresh_satellite_views(const GnssEpoch &epoch);
     void rebuild_analysis(void);
+    void rebuild_replay_state_to(int index);
+    void clear_runtime_data(bool clear_raw_log);
+    void apply_epoch_to_ui(const GnssEpoch &epoch);
+    QString satellite_filter_summary(void) const;
 
     SerialManager serial_;
     ReplayController replay_;
@@ -104,6 +114,12 @@ private:
     QComboBox *speed_combo_ = nullptr;
     QLabel *replay_progress_label_ = nullptr;
     QSlider *replay_progress_ = nullptr;
+    QSpinBox *cn0_min_spin_ = nullptr;
+    QSpinBox *cn0_max_spin_ = nullptr;
+    QSpinBox *azimuth_min_spin_ = nullptr;
+    QSpinBox *azimuth_max_spin_ = nullptr;
+    QSpinBox *elevation_min_spin_ = nullptr;
+    QSpinBox *elevation_max_spin_ = nullptr;
     QPlainTextEdit *analysis_text_ = nullptr;
     QLabel *map_status_label_ = nullptr;
 

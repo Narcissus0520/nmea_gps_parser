@@ -7,7 +7,7 @@
 
 class ReportWriter {
 public:
-    static bool write_html(const QString &path, const AnalysisSummary &summary, QString *error);
+    static bool write_html(const QString &path, const AnalysisSummary &summary, const QList<GnssEpoch> &epochs, QString *error);
     static bool write_csv(const QString &path, const QList<GnssEpoch> &epochs, QString *error);
 };
 

@@ -26,6 +26,10 @@ private:
     QStringList split_payload(const QString &line) const;
     QString talker_type(const QString &field) const;
     QString constellation_from_talker(const QString &talker) const;
+    QString satellite_key(const QString &constellation, int prn) const;
+    QString fix_category_text(void) const;
+    void refresh_fix_category(void);
+    void mark_used_satellites(const QString &constellation, const QStringList &fields);
     double parse_lat_lon(const QString &value, const QString &hemisphere) const;
     QDate parse_date(const QString &value) const;
     QTime parse_time(const QString &value) const;
@@ -38,6 +42,7 @@ private:
 
     GnssEpoch state_;
     QDate last_date_;
+    QStringList used_satellite_keys_;
 };
 
 #endif

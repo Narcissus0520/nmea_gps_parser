@@ -14,6 +14,7 @@ QMAKE_CXXFLAGS += -Wno-sfinae-incomplete
 SOURCES += \
     src/app/main.cpp \
     src/app/main_window.cpp \
+    src/convert/kml_nmea_converter.cpp \
     src/serial/command_encoder.cpp \
     src/serial/command_test_runner.cpp \
     src/serial/serial_manager.cpp \
@@ -29,6 +30,7 @@ SOURCES += \
 
 HEADERS += \
     src/app/main_window.h \
+    src/convert/kml_nmea_converter.h \
     src/serial/command_encoder.h \
     src/serial/command_test_runner.h \
     src/serial/serial_manager.h \

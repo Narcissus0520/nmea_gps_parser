@@ -64,6 +64,7 @@ void NmeaParser::reset(void)
 {
     state_ = GnssEpoch();
     last_date_ = QDate();
+    used_satellite_keys_.clear();
 }
 
 bool NmeaParser::verify_checksum(const QString &line) const
@@ -117,6 +118,62 @@ QString NmeaParser::constellation_from_talker(const QString &talker) const
         return "QZSS";
     }
     return "GNSS";
+}
+
+QString NmeaParser::satellite_key(const QString &constellation, int prn) const
+{
+    return QString("%1:%2").arg(constellation.isEmpty() ? "GNSS" : constellation).arg(prn);
+}
+
+QString NmeaParser::fix_category_text(void) const
+{
+    if (!state_.has_fix) {
+        return "NONE";
+    }
+    if (state_.positioning_mode == "E") {
+        return "VDR";
+    }
+    if (state_.fix_quality == 4) {
+        return "RTK FIX";
+    }
+    if (state_.fix_quality == 5) {
+        return "RTK FLOAT";
+    }
+    if (state_.fix_type == 3) {
+        return "3D";
+    }
+    if (state_.fix_type == 2) {
+        return "2D";
+    }
+    if (state_.fix_quality == 2 || state_.positioning_mode == "D") {
+        return "DGPS";
+    }
+    return "FIX";
+}
+
+void NmeaParser::refresh_fix_category(void)
+{
+    state_.fix_category = fix_category_text();
+}
+
+void NmeaParser::mark_used_satellites(const QString &constellation, const QStringList &fields)
+{
+    const QString prefix = QString("%1:").arg(constellation.isEmpty() ? "GNSS" : constellation);
+    for (int i = used_satellite_keys_.size() - 1; i >= 0; --i) {
+        if (used_satellite_keys_.at(i).startsWith(prefix)) {
+            used_satellite_keys_.removeAt(i);
+        }
+    }
+    for (int i = 3; i <= 14 && i < fields.size(); ++i) {
+        const int prn = fields.value(i).toInt();
+        if (prn > 0) {
+            used_satellite_keys_.append(satellite_key(constellation, prn));
+        }
+    }
+
+    for (SatelliteInfo &satellite : state_.satellites) {
+        satellite.used = used_satellite_keys_.contains(satellite_key(satellite.constellation, satellite.prn));
+    }
 }
 
 double NmeaParser::parse_lat_lon(const QString &value, const QString &hemisphere) const
@@ -190,6 +247,7 @@ void NmeaParser::parse_gga(const QStringList &fields)
     state_.satellites_used = fields.value(7).toInt();
     state_.hdop = fields.value(8).toDouble();
     state_.altitude = fields.value(9).toDouble();
+    refresh_fix_category();
 }
 
 void NmeaParser::parse_rmc(const QStringList &fields)
@@ -204,6 +262,8 @@ void NmeaParser::parse_rmc(const QStringList &fields)
     state_.longitude = parse_lat_lon(fields.value(5), fields.value(6));
     state_.speed_kmh = fields.value(7).toDouble() * 1.852;
     state_.course_deg = fields.value(8).toDouble();
+    state_.positioning_mode = fields.value(12);
+    refresh_fix_category();
 }
 
 void NmeaParser::parse_gsa(const QStringList &fields)
@@ -216,6 +276,8 @@ void NmeaParser::parse_gsa(const QStringList &fields)
     state_.pdop = fields.value(fields.size() - 3).toDouble();
     state_.hdop = fields.value(fields.size() - 2).toDouble();
     state_.vdop = fields.value(fields.size() - 1).toDouble();
+    mark_used_satellites(constellation_from_talker(fields.value(0).left(2)), fields);
+    refresh_fix_category();
 }
 
 void NmeaParser::parse_gsv(const QStringList &fields)
@@ -232,6 +294,7 @@ void NmeaParser::parse_gsv(const QStringList &fields)
         satellite.elevation = fields.value(i + 1).toInt();
         satellite.azimuth = fields.value(i + 2).toInt();
         satellite.cn0 = fields.value(i + 3).toInt();
+        satellite.used = used_satellite_keys_.contains(satellite_key(satellite.constellation, satellite.prn));
 
         bool replaced = false;
         for (SatelliteInfo &existing : state_.satellites) {

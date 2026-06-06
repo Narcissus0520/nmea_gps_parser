@@ -131,6 +131,27 @@ void test_parse_multi_constellation_gsv(QList<QString> *failures)
            failures);
 }
 
+void test_parse_fix_category(QList<QString> *failures)
+{
+    NmeaParser parser;
+    GnssEpoch epoch;
+
+    expect(parser.parse_line(with_checksum("GNGGA,123520,2232.5458,N,11403.4719,E,4,12,0.8,31.5,M,0.0,M,,"), &epoch),
+           "RTK GGA sentence was rejected",
+           failures);
+    expect(epoch.fix_category == "RTK FIX", "RTK fix category mismatch", failures);
+
+    expect(parser.parse_line(with_checksum("GNRMC,123521,A,2232.5458,N,11403.4719,E,0.0,0.0,050626,,,E"), &epoch),
+           "VDR RMC sentence was rejected",
+           failures);
+    expect(epoch.fix_category == "VDR", "VDR fix category mismatch", failures);
+
+    expect(parser.parse_line(with_checksum("GPGSA,A,3,12,05,24,03,29,31,17,19,22,,,,1.3,0.8,1.1"), &epoch),
+           "3D GSA sentence was rejected",
+           failures);
+    expect(epoch.fix_type == 3, "3D GSA fix type mismatch", failures);
+}
+
 void test_reject_checksum_failure(QList<QString> *failures)
 {
     NmeaParser parser;
@@ -155,6 +176,7 @@ int main(int argc, char *argv[])
     test_encode_hex_rejects_invalid_input(&failures);
     test_parse_valid_position_and_motion_sentences(&failures);
     test_parse_multi_constellation_gsv(&failures);
+    test_parse_fix_category(&failures);
     test_reject_checksum_failure(&failures);
 
     if (failures.isEmpty()) {

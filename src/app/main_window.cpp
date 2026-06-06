@@ -1,5 +1,6 @@
-#include "main_window.h"
+﻿#include "main_window.h"
 
+#include "../convert/kml_nmea_converter.h"
 #include "../report/report_writer.h"
 
 #include <QFile>
@@ -10,6 +11,7 @@
 #include <QHBoxLayout>
 #include <QMessageBox>
 #include <QSizePolicy>
+#include <QSignalBlocker>
 #include <QTextStream>
 #include <QVBoxLayout>
 
@@ -94,8 +96,10 @@ QWidget *MainWindow::create_header_panel(void)
     brand->setObjectName("brandLabel");
     QLabel *subtitle = new QLabel("基于 NMEA-0183 协议的 GNSS 报文解析工具", panel);
     subtitle->setObjectName("subtitleLabel");
-    QLabel *version = new QLabel("v 1.2.1", panel);
+    QLabel *version = new QLabel("v 1.3.0", panel);
     version->setObjectName("versionLabel");
+    QPushButton *help_button = new QPushButton("Help", panel);
+    help_button->setFixedWidth(72);
     QLabel *state = new QLabel("● 未连接", panel);
     state->setObjectName("connectionLabel");
     state->setMinimumWidth(150);
@@ -104,8 +108,10 @@ QWidget *MainWindow::create_header_panel(void)
     layout->addWidget(brand);
     layout->addWidget(subtitle);
     layout->addWidget(version);
+    layout->addWidget(help_button);
     layout->addStretch();
     layout->addWidget(state);
+    connect(help_button, &QPushButton::clicked, this, &MainWindow::show_quick_start_help);
     panel->setFixedHeight(48);
     return panel;
 }
@@ -197,6 +203,27 @@ void MainWindow::toggle_command_test_run(void)
     command_test_runner_.start(&serial_);
 }
 
+void MainWindow::show_quick_start_help(void)
+{
+    QMessageBox::information(
+        this,
+        "Quick Start / 功能简介",
+        "1. Serial realtime\n"
+        "Select COM parameters, click Connect, then watch raw NMEA, dashboards, sky plot, CN0, map, and analysis update together.\n\n"
+        "2. Command send and tests\n"
+        "Use Text/HEX command input for one-shot commands. Load CSV runs automated command cases: name,mode,ending,command,expect,timeout_ms.\n\n"
+        "3. Replay\n"
+        "Open a .nmea/.txt/.log file, choose speed, Start/Pause/Stop. Drag the progress slider and release to seek safely.\n\n"
+        "4. Sky plot filters\n"
+        "Use GPS/BDS/GLO/GAL/QZSS/GNSS switches plus CN0/AZ/EL ranges. CN0=0 satellites are hidden by default.\n\n"
+        "5. Map\n"
+        "The map uses offline tiles in tiles/{z}/{x}/{y}.png. Click Tiles... to load a tile root and Help in the map area for tile instructions.\n\n"
+        "6. Analysis report\n"
+        "Click Load NMEA for batch analysis. Load Truth CSV first if precision results are needed, then Export Report for HTML+CSV.\n\n"
+        "7. NMEA/KML conversion\n"
+        "Use NMEA>KML to export a valid-fix track. Use KML>NMEA to create basic GGA/RMC replay data from KML coordinates.");
+}
+
 void MainWindow::load_replay_file(void)
 {
     const QString path = QFileDialog::getOpenFileName(this, "Open NMEA", QString(), "NMEA (*.nmea *.txt *.log);;All Files (*)");
@@ -206,7 +233,9 @@ void MainWindow::load_replay_file(void)
     }
     if (!replay_.load_file(path, &error)) {
         QMessageBox::warning(this, "Replay", error);
+        return;
     }
+    rebuild_replay_state_to(0);
 }
 
 void MainWindow::export_nmea(void)
@@ -222,6 +251,58 @@ void MainWindow::export_nmea(void)
         return;
     }
     file.write(raw_nmea_);
+}
+
+void MainWindow::load_analysis_nmea(void)
+{
+    const QString path = QFileDialog::getOpenFileName(this, "Open NMEA for analysis", QString(), "NMEA (*.nmea *.txt *.log);;All Files (*)");
+    if (path.isEmpty()) {
+        return;
+    }
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, "NMEA analysis", file.errorString());
+        return;
+    }
+
+    clear_runtime_data(true);
+    const bool old_block_state = parser_.blockSignals(true);
+    QTextStream stream(&file);
+    GnssEpoch last_epoch;
+    bool has_epoch = false;
+    while (!stream.atEnd()) {
+        const QString line = stream.readLine().trimmed();
+        if (line.isEmpty()) {
+            continue;
+        }
+        GnssEpoch epoch;
+        raw_total_count_++;
+        raw_nmea_.append(line.toUtf8());
+        raw_nmea_.append("\r\n");
+        if (parser_.parse_line(line, &epoch)) {
+            raw_valid_count_++;
+            stored_epochs_.append(epoch);
+            while (stored_epochs_.size() > max_stored_epochs) {
+                stored_epochs_.removeFirst();
+            }
+            analysis_.add_epoch(epoch_with_filtered_satellites(epoch));
+            latest_epoch_ = epoch;
+            has_latest_epoch_ = true;
+            last_epoch = epoch;
+            has_epoch = true;
+        } else {
+            raw_error_count_++;
+        }
+    }
+    parser_.blockSignals(old_block_state);
+
+    update_raw_stats();
+    if (has_epoch) {
+        apply_epoch_to_ui(last_epoch);
+    }
+    analysis_text_->setPlainText(analysis_.summary_text());
+    append_log(QString("[analysis] loaded %1").arg(path));
 }
 
 void MainWindow::load_truth_csv(void)
@@ -247,7 +328,7 @@ void MainWindow::export_report(void)
 
     QString error;
     const AnalysisSummary summary = analysis_.summarize();
-    if (!ReportWriter::write_html(html_path, summary, &error)) {
+    if (!ReportWriter::write_html(html_path, summary, analysis_.epochs(), &error)) {
         QMessageBox::warning(this, "Report", error);
         return;
     }
@@ -258,6 +339,44 @@ void MainWindow::export_report(void)
         return;
     }
     QMessageBox::information(this, "Report", "HTML report and CSV details exported.");
+}
+
+void MainWindow::convert_nmea_to_kml(void)
+{
+    const QString nmea_path = QFileDialog::getOpenFileName(this, "Open NMEA", QString(), "NMEA (*.nmea *.txt *.log);;All Files (*)");
+    if (nmea_path.isEmpty()) {
+        return;
+    }
+    const QString kml_path = QFileDialog::getSaveFileName(this, "Save KML", "gnss_track.kml", "KML (*.kml)");
+    if (kml_path.isEmpty()) {
+        return;
+    }
+
+    QString error;
+    if (!KmlNmeaConverter::nmea_to_kml(nmea_path, kml_path, &error)) {
+        QMessageBox::warning(this, "NMEA to KML", error);
+        return;
+    }
+    QMessageBox::information(this, "NMEA to KML", "KML exported.");
+}
+
+void MainWindow::convert_kml_to_nmea(void)
+{
+    const QString kml_path = QFileDialog::getOpenFileName(this, "Open KML", QString(), "KML (*.kml);;All Files (*)");
+    if (kml_path.isEmpty()) {
+        return;
+    }
+    const QString nmea_path = QFileDialog::getSaveFileName(this, "Save NMEA", "track_from_kml.nmea", "NMEA (*.nmea);;Text (*.txt)");
+    if (nmea_path.isEmpty()) {
+        return;
+    }
+
+    QString error;
+    if (!KmlNmeaConverter::kml_to_nmea(kml_path, nmea_path, &error)) {
+        QMessageBox::warning(this, "KML to NMEA", error);
+        return;
+    }
+    QMessageBox::information(this, "KML to NMEA", "NMEA exported.");
 }
 
 void MainWindow::toggle_simulation(void)
@@ -343,27 +462,7 @@ void MainWindow::update_epoch(const GnssEpoch &epoch)
         stored_epochs_.removeFirst();
     }
 
-    fix_dashboard_->set_value(epoch.has_fix ? "FIX" : "NO FIX");
-    fix_dashboard_->set_subtitle(QString("Q%1 T%2").arg(epoch.fix_quality).arg(epoch.fix_type));
-    sat_dashboard_->set_value(QString::number(epoch.satellites_used));
-    sat_dashboard_->set_subtitle("satellites used");
-    speed_dashboard_->set_value(QString::number(epoch.speed_kmh, 'f', 1));
-    speed_dashboard_->set_subtitle("km/h");
-    alt_dashboard_->set_value(QString::number(epoch.altitude, 'f', 1));
-    alt_dashboard_->set_subtitle("m");
-    position_dashboard_->set_value(QString("%1\n%2")
-                                       .arg(epoch.latitude, 0, 'f', 6)
-                                       .arg(epoch.longitude, 0, 'f', 6));
-    position_dashboard_->set_subtitle("lat / lon");
-    dop_dashboard_->set_value(QString("H%1 P%2")
-                                  .arg(epoch.hdop, 0, 'f', 1)
-                                  .arg(epoch.pdop, 0, 'f', 1));
-    dop_dashboard_->set_subtitle("DOP");
-    refresh_satellite_views(epoch);
-    if (epoch.has_fix) {
-        map_widget_->add_position(epoch.latitude, epoch.longitude);
-        update_map_status();
-    }
+    apply_epoch_to_ui(epoch);
     analysis_.add_epoch(epoch_with_filtered_satellites(epoch));
     analysis_text_->setPlainText(analysis_.summary_text());
 }
@@ -482,7 +581,10 @@ QWidget *MainWindow::create_replay_panel(void)
     connect(pause_button, &QPushButton::clicked, &replay_, &ReplayController::pause);
     connect(stop_button, &QPushButton::clicked, &replay_, &ReplayController::stop);
     connect(export_button, &QPushButton::clicked, this, &MainWindow::export_nmea);
-    connect(replay_progress_, &QSlider::sliderMoved, &replay_, &ReplayController::seek);
+    connect(replay_progress_, &QSlider::sliderMoved, this, [this](int value) {
+        replay_progress_label_->setText(QString("%1 / %2").arg(value).arg(replay_.total_count()));
+    });
+    connect(replay_progress_, &QSlider::sliderReleased, this, &MainWindow::handle_replay_slider_released);
     connect(speed_combo_, &QComboBox::currentTextChanged, this, [this](const QString &text) {
         replay_.set_speed(text.left(text.size() - 1).toDouble());
     });
@@ -558,6 +660,40 @@ QWidget *MainWindow::create_dashboard_panel(void)
         sat_filter_layout->addWidget(check_box);
         connect(check_box, &QCheckBox::toggled, this, &MainWindow::update_satellite_filter);
     }
+    cn0_min_spin_ = new QSpinBox(sky_box);
+    cn0_max_spin_ = new QSpinBox(sky_box);
+    azimuth_min_spin_ = new QSpinBox(sky_box);
+    azimuth_max_spin_ = new QSpinBox(sky_box);
+    elevation_min_spin_ = new QSpinBox(sky_box);
+    elevation_max_spin_ = new QSpinBox(sky_box);
+    cn0_min_spin_->setRange(0, 99);
+    cn0_max_spin_->setRange(0, 99);
+    cn0_min_spin_->setValue(1);
+    cn0_max_spin_->setValue(99);
+    azimuth_min_spin_->setRange(0, 359);
+    azimuth_max_spin_->setRange(0, 359);
+    azimuth_min_spin_->setValue(0);
+    azimuth_max_spin_->setValue(359);
+    elevation_min_spin_->setRange(0, 90);
+    elevation_max_spin_->setRange(0, 90);
+    elevation_min_spin_->setValue(0);
+    elevation_max_spin_->setValue(90);
+    const QList<QSpinBox *> filter_spins = {cn0_min_spin_, cn0_max_spin_,
+                                            azimuth_min_spin_, azimuth_max_spin_,
+                                            elevation_min_spin_, elevation_max_spin_};
+    for (QSpinBox *spin : filter_spins) {
+        spin->setFixedWidth(52);
+        connect(spin, QOverload<int>::of(&QSpinBox::valueChanged), this, &MainWindow::update_satellite_filter);
+    }
+    sat_filter_layout->addWidget(new QLabel("CN0", sky_box));
+    sat_filter_layout->addWidget(cn0_min_spin_);
+    sat_filter_layout->addWidget(cn0_max_spin_);
+    sat_filter_layout->addWidget(new QLabel("AZ", sky_box));
+    sat_filter_layout->addWidget(azimuth_min_spin_);
+    sat_filter_layout->addWidget(azimuth_max_spin_);
+    sat_filter_layout->addWidget(new QLabel("EL", sky_box));
+    sat_filter_layout->addWidget(elevation_min_spin_);
+    sat_filter_layout->addWidget(elevation_max_spin_);
     sat_filter_layout->addStretch();
     sky_widget_ = new SkyPlotWidget(sky_box);
     cn0_widget_ = new Cn0BarWidget(sky_box);
@@ -598,49 +734,48 @@ QWidget *MainWindow::create_dashboard_panel(void)
 
 QWidget *MainWindow::create_analysis_panel(void)
 {
-    QGroupBox *box = new QGroupBox("分析报告 / ANALYSIS");
+    QGroupBox *box = new QGroupBox("Analysis / ANALYSIS");
     QVBoxLayout *layout = new QVBoxLayout(box);
     layout->setContentsMargins(10, 18, 10, 10);
-    QPushButton *truth_button = new QPushButton("载入标准轨迹", box);
-    QPushButton *report_button = new QPushButton("导出报告", box);
-    QPushButton *clear_button = new QPushButton("清空数据", box);
+    QHBoxLayout *row_one = new QHBoxLayout();
+    QHBoxLayout *row_two = new QHBoxLayout();
+    QPushButton *analysis_nmea_button = new QPushButton("Load NMEA", box);
+    QPushButton *truth_button = new QPushButton("Truth CSV", box);
+    QPushButton *report_button = new QPushButton("Export Report", box);
+    QPushButton *nmea_to_kml_button = new QPushButton("NMEA>KML", box);
+    QPushButton *kml_to_nmea_button = new QPushButton("KML>NMEA", box);
+    QPushButton *clear_button = new QPushButton("Clear", box);
     simulation_button_ = new QPushButton("Start Sim", box);
     analysis_text_ = new QPlainTextEdit(box);
     analysis_text_->setReadOnly(true);
     analysis_text_->setMaximumHeight(130);
 
-    layout->addWidget(simulation_button_);
-    layout->addWidget(truth_button);
-    layout->addWidget(report_button);
-    layout->addWidget(clear_button);
+    row_one->addWidget(simulation_button_);
+    row_one->addWidget(analysis_nmea_button);
+    row_one->addWidget(truth_button);
+    row_two->addWidget(report_button);
+    row_two->addWidget(nmea_to_kml_button);
+    row_two->addWidget(kml_to_nmea_button);
+    row_two->addWidget(clear_button);
+    layout->addLayout(row_one);
+    layout->addLayout(row_two);
     layout->addWidget(analysis_text_);
 
     connect(simulation_button_, &QPushButton::clicked, this, &MainWindow::toggle_simulation);
+    connect(analysis_nmea_button, &QPushButton::clicked, this, &MainWindow::load_analysis_nmea);
     connect(truth_button, &QPushButton::clicked, this, &MainWindow::load_truth_csv);
     connect(report_button, &QPushButton::clicked, this, &MainWindow::export_report);
+    connect(nmea_to_kml_button, &QPushButton::clicked, this, &MainWindow::convert_nmea_to_kml);
+    connect(kml_to_nmea_button, &QPushButton::clicked, this, &MainWindow::convert_kml_to_nmea);
     connect(clear_button, &QPushButton::clicked, this, [this]() {
         simulation_.stop();
         if (simulation_button_ != nullptr) {
             simulation_button_->setText("Start Sim");
         }
-        parser_.reset();
-        analysis_.clear_epochs();
-        stored_epochs_.clear();
-        has_latest_epoch_ = false;
-        map_widget_->clear_track();
-        update_map_status();
-        raw_nmea_.clear();
-        raw_buffer_truncated_ = false;
-        raw_total_count_ = 0;
-        raw_valid_count_ = 0;
-        raw_error_count_ = 0;
-        update_raw_stats();
-        raw_log_->clear();
-        analysis_text_->clear();
+        clear_runtime_data(true);
     });
     return box;
 }
-
 QWidget *MainWindow::create_bottom_panel(void)
 {
     QWidget *panel = new QWidget(this);
@@ -658,7 +793,7 @@ QWidget *MainWindow::create_bottom_panel(void)
     layout->addWidget(command, 3);
     layout->addWidget(replay, 4);
     layout->addWidget(analysis, 3);
-    panel->setFixedHeight(174);
+    panel->setFixedHeight(210);
     return panel;
 }
 
@@ -762,6 +897,106 @@ void MainWindow::update_map_status(void)
                                    .arg(tile_name.isEmpty() ? "default" : tile_name));
 }
 
+void MainWindow::handle_replay_slider_released(void)
+{
+    if (replay_progress_ == nullptr) {
+        return;
+    }
+
+    const int target = replay_progress_->value();
+    replay_.seek(target);
+    rebuild_replay_state_to(target);
+}
+
+void MainWindow::clear_runtime_data(bool clear_raw_log)
+{
+    parser_.reset();
+    analysis_.clear_epochs();
+    stored_epochs_.clear();
+    has_latest_epoch_ = false;
+    if (map_widget_ != nullptr) {
+        map_widget_->clear_track();
+        update_map_status();
+    }
+    raw_nmea_.clear();
+    raw_buffer_truncated_ = false;
+    raw_total_count_ = 0;
+    raw_valid_count_ = 0;
+    raw_error_count_ = 0;
+    update_raw_stats();
+    if (clear_raw_log && raw_log_ != nullptr) {
+        raw_log_->clear();
+    }
+    if (analysis_text_ != nullptr) {
+        analysis_text_->clear();
+    }
+}
+
+void MainWindow::apply_epoch_to_ui(const GnssEpoch &epoch)
+{
+    fix_dashboard_->set_value(epoch.has_fix ? epoch.fix_category : "NO FIX");
+    fix_dashboard_->set_subtitle(QString("Q%1 T%2 M%3")
+                                     .arg(epoch.fix_quality)
+                                     .arg(epoch.fix_type)
+                                     .arg(epoch.positioning_mode.isEmpty() ? "-" : epoch.positioning_mode));
+    sat_dashboard_->set_value(QString::number(epoch.satellites_used));
+    sat_dashboard_->set_subtitle("satellites used");
+    speed_dashboard_->set_value(QString::number(epoch.speed_kmh, 'f', 1));
+    speed_dashboard_->set_subtitle("km/h");
+    alt_dashboard_->set_value(QString::number(epoch.altitude, 'f', 1));
+    alt_dashboard_->set_subtitle("m");
+    position_dashboard_->set_value(QString("%1\n%2")
+                                       .arg(epoch.latitude, 0, 'f', 6)
+                                       .arg(epoch.longitude, 0, 'f', 6));
+    position_dashboard_->set_subtitle("lat / lon");
+    dop_dashboard_->set_value(QString("H%1 P%2")
+                                  .arg(epoch.hdop, 0, 'f', 1)
+                                  .arg(epoch.pdop, 0, 'f', 1));
+    dop_dashboard_->set_subtitle(QString("V%1").arg(epoch.vdop, 0, 'f', 1));
+    refresh_satellite_views(epoch);
+    if (epoch.has_fix) {
+        map_widget_->add_position(epoch.latitude, epoch.longitude);
+        update_map_status();
+    }
+}
+
+void MainWindow::rebuild_replay_state_to(int index)
+{
+    const QStringList lines = replay_.lines_until(index);
+    clear_runtime_data(true);
+
+    GnssEpoch last_epoch;
+    bool has_epoch = false;
+    const bool old_block_state = parser_.blockSignals(true);
+    for (const QString &line : lines) {
+        GnssEpoch epoch;
+        raw_total_count_++;
+        if (parser_.parse_line(line, &epoch)) {
+            raw_valid_count_++;
+            latest_epoch_ = epoch;
+            has_latest_epoch_ = true;
+            stored_epochs_.append(epoch);
+            while (stored_epochs_.size() > max_stored_epochs) {
+                stored_epochs_.removeFirst();
+            }
+            analysis_.add_epoch(epoch_with_filtered_satellites(epoch));
+            last_epoch = epoch;
+            has_epoch = true;
+        } else {
+            raw_error_count_++;
+        }
+    }
+    parser_.blockSignals(old_block_state);
+
+    update_raw_stats();
+    if (has_epoch) {
+        apply_epoch_to_ui(last_epoch);
+    }
+    if (analysis_text_ != nullptr) {
+        analysis_text_->setPlainText(analysis_.summary_text());
+    }
+}
+
 void MainWindow::update_satellite_filter(void)
 {
     if (has_latest_epoch_) {
@@ -783,10 +1018,30 @@ QList<SatelliteInfo> MainWindow::filtered_satellites(const QList<SatelliteInfo> 
         return {};
     }
 
+    const int cn0_min = qMin(cn0_min_spin_ == nullptr ? 1 : cn0_min_spin_->value(),
+                             cn0_max_spin_ == nullptr ? 99 : cn0_max_spin_->value());
+    const int cn0_max = qMax(cn0_min_spin_ == nullptr ? 1 : cn0_min_spin_->value(),
+                             cn0_max_spin_ == nullptr ? 99 : cn0_max_spin_->value());
+    const int azimuth_min = qMin(azimuth_min_spin_ == nullptr ? 0 : azimuth_min_spin_->value(),
+                                 azimuth_max_spin_ == nullptr ? 359 : azimuth_max_spin_->value());
+    const int azimuth_max = qMax(azimuth_min_spin_ == nullptr ? 0 : azimuth_min_spin_->value(),
+                                 azimuth_max_spin_ == nullptr ? 359 : azimuth_max_spin_->value());
+    const int elevation_min = qMin(elevation_min_spin_ == nullptr ? 0 : elevation_min_spin_->value(),
+                                   elevation_max_spin_ == nullptr ? 90 : elevation_max_spin_->value());
+    const int elevation_max = qMax(elevation_min_spin_ == nullptr ? 0 : elevation_min_spin_->value(),
+                                   elevation_max_spin_ == nullptr ? 90 : elevation_max_spin_->value());
+
     QList<SatelliteInfo> filtered;
     for (const SatelliteInfo &satellite : satellites) {
         const QString constellation = satellite.constellation.isEmpty() ? "GNSS" : satellite.constellation;
-        if (enabled_constellations.contains(constellation)) {
+        if (enabled_constellations.contains(constellation)
+            && satellite.cn0 > 0
+            && satellite.cn0 >= cn0_min
+            && satellite.cn0 <= cn0_max
+            && satellite.azimuth >= azimuth_min
+            && satellite.azimuth <= azimuth_max
+            && satellite.elevation >= elevation_min
+            && satellite.elevation <= elevation_max) {
             filtered.append(satellite);
         }
     }
@@ -819,3 +1074,4 @@ void MainWindow::rebuild_analysis(void)
         analysis_text_->setPlainText(analysis_.summary_text());
     }
 }
+

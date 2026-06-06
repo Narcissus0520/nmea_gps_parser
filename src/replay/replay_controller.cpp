@@ -101,8 +101,6 @@ void ReplayController::seek(int index)
         return;
     }
 
-    emit line_replayed(lines_.at(index_));
-    index_++;
     emit progress_changed(index_, lines_.size());
     emit status_changed(QString("Replay seeked to %1/%2").arg(index_).arg(lines_.size()));
 
@@ -125,6 +123,12 @@ int ReplayController::progress(void) const
 int ReplayController::total_count(void) const
 {
     return lines_.size();
+}
+
+QStringList ReplayController::lines_until(int count) const
+{
+    const int safe_count = qBound(0, count, lines_.size());
+    return lines_.mid(0, safe_count);
 }
 
 void ReplayController::replay_next_line(void)
