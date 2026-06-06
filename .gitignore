@@ -5,6 +5,11 @@ Makefile
 Makefile.Debug
 Makefile.Release
 .qmake.stash
+tests/unit_tests/build/
+tests/unit_tests/debug/
+tests/unit_tests/release/
+tests/unit_tests/Makefile*
+tests/unit_tests/target_wrapper.*
 
 # Local map data and generated reports
 tiles/

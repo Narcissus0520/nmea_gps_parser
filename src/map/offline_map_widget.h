@@ -4,6 +4,7 @@
 #include <QList>
 #include <QPointF>
 #include <QString>
+#include <QStringList>
 #include <QWidget>
 
 class OfflineMapWidget : public QWidget {
@@ -28,6 +29,10 @@ protected:
 private:
     QPointF geo_to_world(double latitude, double longitude, int zoom) const;
     void draw_empty_grid(QPainter *painter, const QString &message) const;
+    QString choose_default_tile_root(void) const;
+    QStringList default_tile_root_candidates(void) const;
+    QString tile_path(int zoom, int tile_x, int tile_y) const;
+    bool tile_root_has_tiles(const QString &path) const;
 
     QString tile_root_;
     QList<QPointF> track_;

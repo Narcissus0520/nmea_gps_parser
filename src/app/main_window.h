@@ -5,6 +5,7 @@
 #include "../map/offline_map_widget.h"
 #include "../nmea/nmea_parser.h"
 #include "../replay/replay_controller.h"
+#include "../serial/command_test_runner.h"
 #include "../serial/serial_manager.h"
 #include "../sim/simulation_controller.h"
 #include "../widgets/cn0_bar_widget.h"
@@ -17,9 +18,10 @@
 #include <QList>
 #include <QMainWindow>
 #include <QPlainTextEdit>
-#include <QProgressBar>
 #include <QPushButton>
 #include <QSet>
+#include <QSerialPort>
+#include <QSlider>
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -31,6 +33,8 @@ private slots:
     void refresh_ports(void);
     void toggle_serial(void);
     void send_command(void);
+    void load_command_test_file(void);
+    void toggle_command_test_run(void);
     void load_replay_file(void);
     void export_nmea(void);
     void load_truth_csv(void);
@@ -52,6 +56,9 @@ private:
     QWidget *create_dashboard_panel(void);
     QWidget *create_analysis_panel(void);
     QWidget *create_bottom_panel(void);
+    QSerialPort::DataBits selected_data_bits(void) const;
+    QSerialPort::Parity selected_parity(void) const;
+    QSerialPort::StopBits selected_stop_bits(void) const;
     LineEnding selected_line_ending(void) const;
     CommandMode selected_command_mode(void) const;
     void append_log(const QString &text);
@@ -65,6 +72,7 @@ private:
 
     SerialManager serial_;
     ReplayController replay_;
+    CommandTestRunner command_test_runner_;
     SimulationController simulation_;
     NmeaParser parser_;
     AnalysisEngine analysis_;
@@ -79,6 +87,9 @@ private:
 
     QComboBox *port_combo_ = nullptr;
     QComboBox *baud_combo_ = nullptr;
+    QComboBox *data_bits_combo_ = nullptr;
+    QComboBox *stop_bits_combo_ = nullptr;
+    QComboBox *parity_combo_ = nullptr;
     QPushButton *connect_button_ = nullptr;
     QPushButton *simulation_button_ = nullptr;
     QLabel *status_label_ = nullptr;
@@ -86,10 +97,13 @@ private:
     QLabel *raw_stats_label_ = nullptr;
     QList<QCheckBox *> constellation_filter_checks_;
     QPlainTextEdit *command_edit_ = nullptr;
+    QPlainTextEdit *command_test_results_ = nullptr;
     QComboBox *command_mode_combo_ = nullptr;
     QComboBox *line_ending_combo_ = nullptr;
+    QPushButton *command_test_run_button_ = nullptr;
     QComboBox *speed_combo_ = nullptr;
-    QProgressBar *replay_progress_ = nullptr;
+    QLabel *replay_progress_label_ = nullptr;
+    QSlider *replay_progress_ = nullptr;
     QPlainTextEdit *analysis_text_ = nullptr;
     QLabel *map_status_label_ = nullptr;
 

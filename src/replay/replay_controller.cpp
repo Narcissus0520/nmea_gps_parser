@@ -3,6 +3,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QTextStream>
+#include <QtGlobal>
 
 namespace {
 constexpr qint64 max_replay_file_bytes = 64 * 1024 * 1024;
@@ -78,6 +79,36 @@ void ReplayController::stop(void)
     index_ = 0;
     emit progress_changed(index_, lines_.size());
     emit status_changed("Replay stopped");
+}
+
+void ReplayController::seek(int index)
+{
+    if (lines_.isEmpty()) {
+        emit status_changed("No replay file loaded");
+        return;
+    }
+
+    const bool was_running = timer_.isActive();
+    timer_.stop();
+    index_ = qBound(0, index, lines_.size());
+
+    if (index_ >= lines_.size()) {
+        emit progress_changed(index_, lines_.size());
+        emit status_changed("Replay seeked to end");
+        if (was_running) {
+            timer_.start();
+        }
+        return;
+    }
+
+    emit line_replayed(lines_.at(index_));
+    index_++;
+    emit progress_changed(index_, lines_.size());
+    emit status_changed(QString("Replay seeked to %1/%2").arg(index_).arg(lines_.size()));
+
+    if (was_running) {
+        timer_.start();
+    }
 }
 
 void ReplayController::set_speed(double speed)

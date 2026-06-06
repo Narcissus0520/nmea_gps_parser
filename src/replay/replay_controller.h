@@ -15,6 +15,7 @@ public:
     void start(void);
     void pause(void);
     void stop(void);
+    void seek(int index);
     void set_speed(double speed);
     int progress(void) const;
     int total_count(void) const;

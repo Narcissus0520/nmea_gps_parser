@@ -5,6 +5,16 @@
 namespace {
 constexpr int max_serial_buffer_bytes = 8192;
 constexpr int max_nmea_line_bytes = 4096;
+
+QString serial_config_text(int baud_rate,
+                           QSerialPort::DataBits data_bits,
+                           QSerialPort::Parity parity,
+                           QSerialPort::StopBits stop_bits)
+{
+    const QString parity_text = parity == QSerialPort::EvenParity ? "E" : (parity == QSerialPort::OddParity ? "O" : "N");
+    const QString stop_bits_text = stop_bits == QSerialPort::TwoStop ? "2" : "1";
+    return QString("%1 %2%3%4").arg(baud_rate).arg(static_cast<int>(data_bits)).arg(parity_text).arg(stop_bits_text);
+}
 }
 
 SerialManager::SerialManager(QObject *parent)
@@ -28,18 +38,25 @@ QStringList SerialManager::available_ports(void) const
     return ports;
 }
 
-bool SerialManager::open_port(const QString &port_name, int baud_rate)
+bool SerialManager::open_port(const QString &port_name,
+                              int baud_rate,
+                              QSerialPort::DataBits data_bits,
+                              QSerialPort::Parity parity,
+                              QSerialPort::StopBits stop_bits)
 {
     if (serial_.isOpen()) {
         serial_.close();
     }
 
     serial_.setPortName(port_name);
-    serial_.setBaudRate(baud_rate);
-    serial_.setDataBits(QSerialPort::Data8);
-    serial_.setParity(QSerialPort::NoParity);
-    serial_.setStopBits(QSerialPort::OneStop);
-    serial_.setFlowControl(QSerialPort::NoFlowControl);
+    if (!serial_.setBaudRate(baud_rate)
+        || !serial_.setDataBits(data_bits)
+        || !serial_.setParity(parity)
+        || !serial_.setStopBits(stop_bits)
+        || !serial_.setFlowControl(QSerialPort::NoFlowControl)) {
+        emit error_message("Invalid serial configuration.");
+        return false;
+    }
 
     if (!serial_.open(QIODevice::ReadWrite)) {
         emit error_message(serial_.errorString());
@@ -47,7 +64,7 @@ bool SerialManager::open_port(const QString &port_name, int baud_rate)
     }
 
     buffer_.clear();
-    emit status_changed("Connected: " + port_name);
+    emit status_changed(QString("Connected: %1 %2").arg(port_name, serial_config_text(baud_rate, data_bits, parity, stop_bits)));
     return true;
 }
 

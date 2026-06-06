@@ -82,6 +82,30 @@ function Find-DependencySource {
     return $null
 }
 
+function Find-TileSource {
+    param([string]$ProjectRoot)
+
+    $candidates = @(
+        (Join-Path $ProjectRoot "release\tiles"),
+        (Join-Path $ProjectRoot "tiles"),
+        (Join-Path $ProjectRoot "dist\GnssCyberpunkHost\tiles")
+    )
+
+    foreach ($candidate in $candidates) {
+        if (-not (Test-Path $candidate)) {
+            continue
+        }
+
+        $png = Get-ChildItem -Path $candidate -Recurse -File -Filter "*.png" -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($png) {
+            return $candidate
+        }
+    }
+
+    return $null
+}
+
 $projectRoot = Get-ProjectRoot
 Set-Location $projectRoot
 Assert-SafePackageName -Name $PackageName
@@ -118,9 +142,12 @@ Copy-Item -LiteralPath $exeSource -Destination $exeDest -Force
 Write-Host "Deploying Qt runtime..."
 & windeployqt $exeDest
 
-$tileSource = Join-Path $projectRoot "release\tiles"
-if (Test-Path $tileSource) {
+$tileSource = Find-TileSource -ProjectRoot $projectRoot
+if ($tileSource) {
     Copy-Item -LiteralPath $tileSource -Destination (Join-Path $packageDir "tiles") -Recurse -Force
+    Write-Host "Copied map tiles from $tileSource"
+} else {
+    Write-Warning "No local map tiles found. The app will show the fallback map grid until tiles are loaded."
 }
 
 $searchDirs = @(

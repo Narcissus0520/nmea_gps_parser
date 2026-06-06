@@ -15,6 +15,7 @@ SOURCES += \
     src/app/main.cpp \
     src/app/main_window.cpp \
     src/serial/command_encoder.cpp \
+    src/serial/command_test_runner.cpp \
     src/serial/serial_manager.cpp \
     src/nmea/nmea_parser.cpp \
     src/replay/replay_controller.cpp \
@@ -29,6 +30,7 @@ SOURCES += \
 HEADERS += \
     src/app/main_window.h \
     src/serial/command_encoder.h \
+    src/serial/command_test_runner.h \
     src/serial/serial_manager.h \
     src/nmea/gnss_types.h \
     src/nmea/nmea_parser.h \

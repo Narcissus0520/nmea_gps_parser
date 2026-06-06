@@ -4,6 +4,7 @@
 
 #include <QFile>
 #include <QFileDialog>
+#include <QDir>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -39,6 +40,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(&serial_, &SerialManager::line_received, this, &MainWindow::process_nmea_line);
     connect(&serial_, &SerialManager::raw_received, this, [this](const QByteArray &data) {
         append_raw_nmea(data);
+        command_test_runner_.append_response(data);
     });
     connect(&serial_, &SerialManager::status_changed, status_label_, &QLabel::setText);
     connect(&serial_, &SerialManager::error_message, this, [this](const QString &message) {
@@ -48,6 +50,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(&replay_, &ReplayController::progress_changed, this, [this](int current, int total) {
         replay_progress_->setMaximum(total);
         replay_progress_->setValue(current);
+        replay_progress_label_->setText(QString("%1 / %2").arg(current).arg(total));
     });
     connect(&replay_, &ReplayController::status_changed, this, &MainWindow::append_log);
     connect(&simulation_, &SimulationController::line_generated, this, [this](const QString &line) {
@@ -58,6 +61,25 @@ MainWindow::MainWindow(QWidget *parent)
     connect(&simulation_, &SimulationController::status_changed, this, &MainWindow::append_log);
     connect(&parser_, &NmeaParser::epoch_updated, this, &MainWindow::update_epoch);
     connect(&parser_, &NmeaParser::parse_error, this, &MainWindow::append_log);
+    connect(&command_test_runner_, &CommandTestRunner::status_changed, this, [this](const QString &status) {
+        if (command_test_results_ != nullptr) {
+            command_test_results_->appendPlainText(status);
+        }
+        append_log("[cmd-test] " + status);
+    });
+    connect(&command_test_runner_, &CommandTestRunner::test_result, this, [this](const QString &line) {
+        if (command_test_results_ != nullptr) {
+            command_test_results_->appendPlainText(line);
+        }
+    });
+    connect(&command_test_runner_, &CommandTestRunner::finished, this, [this](int passed, int failed) {
+        if (command_test_run_button_ != nullptr) {
+            command_test_run_button_->setText("Run Tests");
+        }
+        if (command_test_results_ != nullptr) {
+            command_test_results_->appendPlainText(QString("Summary PASS:%1 FAIL:%2").arg(passed).arg(failed));
+        }
+    });
 }
 
 QWidget *MainWindow::create_header_panel(void)
@@ -72,7 +94,7 @@ QWidget *MainWindow::create_header_panel(void)
     brand->setObjectName("brandLabel");
     QLabel *subtitle = new QLabel("基于 NMEA-0183 协议的 GNSS 报文解析工具", panel);
     subtitle->setObjectName("subtitleLabel");
-    QLabel *version = new QLabel("v 1.1.2", panel);
+    QLabel *version = new QLabel("v 1.2.1", panel);
     version->setObjectName("versionLabel");
     QLabel *state = new QLabel("● 未连接", panel);
     state->setObjectName("connectionLabel");
@@ -109,7 +131,7 @@ void MainWindow::toggle_serial(void)
         return;
     }
 
-    if (serial_.open_port(port, baud)) {
+    if (serial_.open_port(port, baud, selected_data_bits(), selected_parity(), selected_stop_bits())) {
         connect_button_->setText("Disconnect");
     }
 }
@@ -125,6 +147,54 @@ void MainWindow::send_command(void)
         return;
     }
     append_log("[tx] command sent");
+}
+
+void MainWindow::load_command_test_file(void)
+{
+    const QString path = QFileDialog::getOpenFileName(this, "Open command test CSV", QString(), "CSV (*.csv);;All Files (*)");
+    if (path.isEmpty()) {
+        return;
+    }
+
+    QString error;
+    if (!command_test_runner_.load_file(path, &error)) {
+        QMessageBox::warning(this, "Command tests", error);
+        return;
+    }
+
+    if (command_test_results_ != nullptr) {
+        command_test_results_->clear();
+        command_test_results_->appendPlainText(QString("Loaded: %1 cases").arg(command_test_runner_.case_count()));
+        command_test_results_->appendPlainText("CSV: name,mode,ending,command,expect,timeout_ms");
+    }
+}
+
+void MainWindow::toggle_command_test_run(void)
+{
+    if (command_test_runner_.is_running()) {
+        command_test_runner_.stop();
+        if (command_test_run_button_ != nullptr) {
+            command_test_run_button_->setText("Run Tests");
+        }
+        return;
+    }
+
+    if (!command_test_runner_.has_cases()) {
+        QMessageBox::warning(this, "Command tests", "Load command test CSV before running.");
+        return;
+    }
+    if (!serial_.is_open()) {
+        QMessageBox::warning(this, "Command tests", "Open a serial port before running command tests.");
+        return;
+    }
+
+    if (command_test_results_ != nullptr) {
+        command_test_results_->appendPlainText("---- run ----");
+    }
+    if (command_test_run_button_ != nullptr) {
+        command_test_run_button_->setText("Stop Tests");
+    }
+    command_test_runner_.start(&serial_);
 }
 
 void MainWindow::load_replay_file(void)
@@ -311,13 +381,13 @@ QWidget *MainWindow::create_serial_panel(void)
     baud_combo_->setCurrentText("115200");
     QPushButton *refresh_button = new QPushButton("Refresh", box);
     connect_button_ = new QPushButton("Connect", box);
-    QComboBox *data_bits_combo = new QComboBox(box);
-    QComboBox *stop_bits_combo = new QComboBox(box);
-    QComboBox *parity_combo = new QComboBox(box);
+    data_bits_combo_ = new QComboBox(box);
+    stop_bits_combo_ = new QComboBox(box);
+    parity_combo_ = new QComboBox(box);
     QLabel *inline_status = new QLabel("● 未连接", box);
-    data_bits_combo->addItems({"8", "7"});
-    stop_bits_combo->addItems({"1", "2"});
-    parity_combo->addItems({"None", "Even", "Odd"});
+    data_bits_combo_->addItems({"8", "7"});
+    stop_bits_combo_->addItems({"1", "2"});
+    parity_combo_->addItems({"None", "Even", "Odd"});
 
     layout->addWidget(new QLabel("端口", box), 0, 0);
     layout->addWidget(new QLabel("波特率", box), 0, 1);
@@ -326,9 +396,9 @@ QWidget *MainWindow::create_serial_panel(void)
     layout->addWidget(new QLabel("校验", box), 0, 4);
     layout->addWidget(port_combo_, 1, 0);
     layout->addWidget(baud_combo_, 1, 1);
-    layout->addWidget(data_bits_combo, 1, 2);
-    layout->addWidget(stop_bits_combo, 1, 3);
-    layout->addWidget(parity_combo, 1, 4);
+    layout->addWidget(data_bits_combo_, 1, 2);
+    layout->addWidget(stop_bits_combo_, 1, 3);
+    layout->addWidget(parity_combo_, 1, 4);
     layout->addWidget(inline_status, 1, 5);
     layout->addWidget(connect_button_, 1, 6);
     layout->addWidget(refresh_button, 1, 7);
@@ -352,17 +422,28 @@ QWidget *MainWindow::create_command_panel(void)
     command_mode_combo_->addItems({"Text", "HEX"});
     line_ending_combo_ = new QComboBox(box);
     line_ending_combo_->addItems({"CRLF", "CR", "LF", "None"});
+    QPushButton *load_test_button = new QPushButton("Load CSV", box);
+    command_test_run_button_ = new QPushButton("Run Tests", box);
+    command_test_results_ = new QPlainTextEdit(box);
+    command_test_results_->setReadOnly(true);
+    command_test_results_->setMaximumHeight(54);
+    command_test_results_->setPlaceholderText("Command test results");
     command_edit_ = new QPlainTextEdit(box);
     command_edit_->setPlaceholderText("Text: PMTK command / HEX: AA 55 01 0D 0A or AA55010D0A");
-    command_edit_->setMaximumHeight(82);
+    command_edit_->setMaximumHeight(48);
     QPushButton *send_button = new QPushButton("发送指令", box);
 
     options->addWidget(command_mode_combo_);
     options->addWidget(line_ending_combo_);
+    options->addWidget(send_button);
+    options->addWidget(load_test_button);
+    options->addWidget(command_test_run_button_);
     layout->addLayout(options);
     layout->addWidget(command_edit_);
-    layout->addWidget(send_button);
+    layout->addWidget(command_test_results_);
     connect(send_button, &QPushButton::clicked, this, &MainWindow::send_command);
+    connect(load_test_button, &QPushButton::clicked, this, &MainWindow::load_command_test_file);
+    connect(command_test_run_button_, &QPushButton::clicked, this, &MainWindow::toggle_command_test_run);
     return box;
 }
 
@@ -380,7 +461,11 @@ QWidget *MainWindow::create_replay_panel(void)
     QPushButton *export_button = new QPushButton("导出 NMEA", box);
     speed_combo_ = new QComboBox(box);
     speed_combo_->addItems({"1x", "2x", "5x", "10x"});
-    replay_progress_ = new QProgressBar(box);
+    replay_progress_label_ = new QLabel("0 / 0", box);
+    replay_progress_ = new QSlider(Qt::Horizontal, box);
+    replay_progress_->setRange(0, 0);
+    replay_progress_->setSingleStep(1);
+    replay_progress_->setPageStep(10);
 
     buttons->addWidget(open_button);
     buttons->addWidget(start_button);
@@ -388,6 +473,7 @@ QWidget *MainWindow::create_replay_panel(void)
     buttons->addWidget(stop_button);
     layout->addLayout(buttons);
     layout->addWidget(speed_combo_);
+    layout->addWidget(replay_progress_label_);
     layout->addWidget(replay_progress_);
     layout->addWidget(export_button);
 
@@ -396,6 +482,7 @@ QWidget *MainWindow::create_replay_panel(void)
     connect(pause_button, &QPushButton::clicked, &replay_, &ReplayController::pause);
     connect(stop_button, &QPushButton::clicked, &replay_, &ReplayController::stop);
     connect(export_button, &QPushButton::clicked, this, &MainWindow::export_nmea);
+    connect(replay_progress_, &QSlider::sliderMoved, &replay_, &ReplayController::seek);
     connect(speed_combo_, &QComboBox::currentTextChanged, this, [this](const QString &text) {
         replay_.set_speed(text.left(text.size() - 1).toDouble());
     });
@@ -573,6 +660,36 @@ QWidget *MainWindow::create_bottom_panel(void)
     layout->addWidget(analysis, 3);
     panel->setFixedHeight(174);
     return panel;
+}
+
+QSerialPort::DataBits MainWindow::selected_data_bits(void) const
+{
+    return data_bits_combo_ != nullptr && data_bits_combo_->currentText() == "7"
+               ? QSerialPort::Data7
+               : QSerialPort::Data8;
+}
+
+QSerialPort::Parity MainWindow::selected_parity(void) const
+{
+    if (parity_combo_ == nullptr) {
+        return QSerialPort::NoParity;
+    }
+
+    const QString text = parity_combo_->currentText();
+    if (text == "Even") {
+        return QSerialPort::EvenParity;
+    }
+    if (text == "Odd") {
+        return QSerialPort::OddParity;
+    }
+    return QSerialPort::NoParity;
+}
+
+QSerialPort::StopBits MainWindow::selected_stop_bits(void) const
+{
+    return stop_bits_combo_ != nullptr && stop_bits_combo_->currentText() == "2"
+               ? QSerialPort::TwoStop
+               : QSerialPort::OneStop;
 }
 
 LineEnding MainWindow::selected_line_ending(void) const

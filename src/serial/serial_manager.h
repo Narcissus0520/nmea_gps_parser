@@ -14,7 +14,11 @@ public:
     explicit SerialManager(QObject *parent = nullptr);
 
     QStringList available_ports(void) const;
-    bool open_port(const QString &port_name, int baud_rate = 115200);
+    bool open_port(const QString &port_name,
+                   int baud_rate = 115200,
+                   QSerialPort::DataBits data_bits = QSerialPort::Data8,
+                   QSerialPort::Parity parity = QSerialPort::NoParity,
+                   QSerialPort::StopBits stop_bits = QSerialPort::OneStop);
     void close_port(void);
     bool is_open(void) const;
     bool send_command(const QString &command,

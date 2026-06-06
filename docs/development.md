@@ -8,14 +8,15 @@ GNSS Cyberpunk Host 是一个 C++ Qt 桌面上位机，用于实时串口采集 
 
 ## 2. 功能范围
 
-- 串口连接：默认 `115200 8N1`，支持端口刷新、连接、断开、接收原始 NMEA。
+- 串口连接：默认 `115200 8N1`，支持端口刷新、连接、断开、接收原始 NMEA；界面选择的数据位、校验位和停止位必须真实传入串口驱动层。
 - NMEA 解析：支持 `GGA/RMC/GSA/GSV/VTG`，解析定位、速度、海拔、卫星数、DOP、CN0、卫星方位角和仰角。
 - 仪表盘：定位信息、搜星数、速度、海拔、CN0 TOP7、卫星分布图分区显示。
 - CN0 柱状图：必须按星座/模式独立分组显示，每一模各取本模 CN0 最高的 TOP7；不同星座不可混排成一个总 TOP7。
 - 卫星筛选：天空图提供 GPS/BDS/GLO/GAL/QZSS/GNSS 星座过滤开关，关闭的星座不参与天空图、CN0 TOP7 和 CN0 统计分析。
-- NMEA 文件：支持导出接收到的原始 NMEA，支持导入离线 NMEA 并按回放速度播放。
+- NMEA 文件：支持导出接收到的原始 NMEA，支持导入离线 NMEA 并按回放速度播放；回放进度条支持拖动定位到指定语句并刷新显示。
 - 离线地图：使用 `tiles/{z}/{x}/{y}.png` 本地 Web Mercator 瓦片，显示当前位置和轨迹。
 - COM 命令：支持 ASCII 文本模式和 HEX 模式。文本模式默认追加 CRLF；HEX 模式不自动追加结束符。
+- 自动化指令测试：支持加载 CSV 用例，按顺序通过已连接串口下发 ASCII/HEX 指令，等待响应并匹配期望文本，输出 PASS/FAIL 结果。
 - 精度分析：导入标准轨迹 CSV，格式为 `timestamp,lat,lon,alt`，按时间匹配 GNSS 历元并计算误差。
 - 工程报告：导出 HTML 摘要报告和 CSV 明细。
 
@@ -69,6 +70,16 @@ HEX 模式：
 - 遇到非法字符或奇数长度时提示错误，不写串口。
 - 不自动追加 CR/LF/CRLF。
 
+自动化指令测试：
+
+- 测试用例 CSV 字段固定为 `name,mode,ending,command,expect,timeout_ms`。
+- `mode` 支持 `text` 和 `hex`；`ending` 支持 `crlf/cr/lf/none`，仅文本模式生效。
+- `command` 为待下发内容；HEX 命令继续复用手动下发的 HEX 校验规则，非法字符或奇数长度输入不得写串口。
+- `expect` 为期望响应子串；为空时只验证命令成功写入串口。
+- `timeout_ms` 默认 1000，允许范围 50 到 60000。
+- 测试运行期间按 CSV 顺序串行执行，每条用例完成后进入下一条；结果区记录 PASS/FAIL、用例名称和失败原因。
+- 自动化测试仅使用本地串口，不应自动联网、上传测试结果或读取 CSV 以外的外部资源。
+
 ## 6. 精度分析
 
 标准轨迹 CSV 字段：
@@ -112,7 +123,23 @@ mingw32-make
 
 当前机器 PATH 下未发现 `qmake/cmake` 时，工程文件仍可作为 Qt Creator 工程骨架使用。
 
-## 9. 实现注意点
+## 9. 自动化测试
+
+工程提供 C++ 单元测试可执行程序，覆盖 NMEA 解析和 COM 命令编码：
+
+- NMEA 校验成功与失败。
+- GGA/RMC/GSA/GSV/VTG 基础字段解析。
+- 多星座 GSV 解析与卫星字段聚合。
+- 文本命令 CR/LF/CRLF/无结束符编码。
+- HEX 命令空格格式、连续格式、非法字符和奇数长度校验。
+
+测试源码位于 `tests/unit_tests/`，运行方式：
+
+```powershell
+.\tools\run_unit_tests.ps1
+```
+
+## 10. 实现注意点
 
 - 地图坐标转换使用 Web Mercator 公式，常量使用代码内显式定义，避免依赖非标准宏。
 - HEX 命令校验按 Unicode 字符逐个判断，只接受 `0-9/a-f/A-F` 和空白字符。
@@ -125,7 +152,7 @@ mingw32-make
 - 打包脚本只允许安全包名，不接受包含路径分隔符或上级目录跳转的包名。
 - 用户主动导出的原始 NMEA 可能包含定位轨迹，导出动作必须由用户通过界面触发，不自动上传。
 
-## 10. 效果预览
+## 11. 效果预览
 
 在 Qt 环境尚未完成安装时，可打开 `preview/gnss_preview.html` 查看静态界面效果。该文件仅用于视觉确认，不参与最终 Qt 程序构建。
 
@@ -154,12 +181,15 @@ mingw32-make
 - 工具不内置批量抓取公网瓦片功能，避免违反地图服务条款；用户应从授权地图源或自建瓦片服务导出 PNG XYZ 瓦片后再加载。
 - 地图控件支持 `Zoom +` / `Zoom -` 和鼠标滚轮缩放。
 - 无瓦片时显示深色坐标网格、当前缩放级别、瓦片目录和提示文本，避免用户误以为地图未工作。
+- 尚未收到定位点但默认瓦片可用时，地图以深圳中心演示坐标作为预览中心绘制瓦片，并叠加等待定位提示；收到真实定位点后切换到实际位置和轨迹。
 - 有定位点后始终绘制当前位置和历史轨迹，即使瓦片缺失也保留轨迹显示。
 - 地图状态栏显示当前缩放级别、轨迹点数和瓦片目录。
 - 当前 release 包预置一小份深圳中心演示瓦片，默认路径为 `release/tiles/{z}/{x}/{y}.png`，用于离线地图功能验证。
 - 预置演示瓦片来源为 OpenStreetMap 标准瓦片，地图控件显示 `Tiles (C) OpenStreetMap contributors` attribution。该预置包仅用于小范围功能演示，不作为批量离线地图下载方案。
+- 地图控件启动时需要自动探测常见瓦片目录，按优先级尝试 EXE 同级 `tiles/`、当前工作目录 `tiles/`、当前工作目录 `release/tiles/`、项目发布目录 `release/tiles/` 和便携包目录 `dist/GnssCyberpunkHost/tiles/`，以兼容 Qt Creator Debug、Release EXE 和打包目录三种运行方式。
+- 如果当前 zoom/位置没有匹配瓦片，地图 fallback 提示必须显示当前瓦片根目录和中心瓦片期望路径，便于用户判断是目录选错、zoom 不匹配还是瓦片缺失。
 
-## 11. 仓库提交说明
+## 12. 仓库提交说明
 
 推送到 Git 仓库时只提交源码、开发文档、静态预览、QSS 资源和工程文件。
 
@@ -181,7 +211,7 @@ mingw32-make
 
 如果需要发布可直接运行的程序，应单独打包 release 目录，不放入源码仓库。
 
-## 12. Windows 便携发布包
+## 13. Windows 便携发布包
 
 MSYS2/UCRT64 环境下，`windeployqt` 会部署 Qt DLL 和插件，但不会完整复制 GCC/UCRT64 运行库以及 Qt 依赖的第三方 DLL。因此直接把 `release/GnssCyberpunkHost.exe` 拷到其他 Windows 机器可能无法运行。
 
@@ -199,7 +229,7 @@ MSYS2/UCRT64 环境下，`windeployqt` 会部署 Qt DLL 和插件，但不会完
 - 运行 `windeployqt`
 - 递归扫描 EXE/DLL 的 `DLL Name` 依赖
 - 从 Qt/MSYS2 UCRT64 `bin` 目录复制缺失的运行库和第三方 DLL
-- 拷贝预置深圳演示瓦片 `release/tiles`
+- 从多个候选目录拷贝预置深圳演示瓦片，优先使用 `release/tiles`，其次使用项目根目录 `tiles`
 - 生成 zip 包 `dist/GnssCyberpunkHost-portable.zip`
 
 用户在其他 Windows 机器上应解压整个 `GnssCyberpunkHost` 目录后运行其中的 EXE，不要只复制单个 EXE 文件。
